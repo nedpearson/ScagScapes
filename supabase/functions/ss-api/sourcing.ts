@@ -1,7 +1,7 @@
 // ---------- sourcing: rentals · materials · fuel · research · notifications ----------
 // Live sources: Home Depot rental pricing/inventory (undocumented apionline endpoint, no auth), AAA state/metro fuel page (static HTML),
 // Rokrunner Shopify products.json, OpenStreetMap Overpass/Nominatim. Everything else is a verified-on-date rate card or a flagged estimate.
-import { sb, json, fmt, event, dLabel } from "./core.ts";
+import { sb, json, fmt, event, dLabel, send, integrations } from "./core.ts";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36";
 const HD_STORES = "0357,0375";
 export const miles = (a: number, b: number, c: number, d: number) => { const R = 3958.8, dLat = (c - a) * Math.PI / 180, dLon = (d - b) * Math.PI / 180; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a * Math.PI / 180) * Math.cos(c * Math.PI / 180) * Math.sin(dLon / 2) ** 2; return Math.round(R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)) * 10) / 10; };
@@ -76,7 +76,7 @@ async function evalAlerts(t: string, ctx: { fuel?: any; rentals?: any[]; materia
     if (a.kind === "fuel" && ctx.fuel) { const br = ctx.fuel.find((r: any) => r.region === "Baton Rouge"); const p = br?.[a.target]; if (p && Number(p) <= Number(a.threshold)) hit = `${a.target} is $${Number(p).toFixed(3)} in Baton Rouge (AAA) — at or under your $${a.threshold} alert.`; }
     if (a.kind === "rental" && ctx.rentals) { const m = ctx.rentals.find((r: any) => r.item.toLowerCase().includes(a.target.toLowerCase()) && r.day && Number(r.day) <= Number(a.threshold)); if (m) hit = `${m.item} at ${m.vendor} is ${fmt(m.day)}/day — under your ${fmt(a.threshold)} alert.`; }
     if (a.kind === "material" && ctx.materials) { const m = ctx.materials.find((r: any) => r.item.toLowerCase().includes(a.target.toLowerCase()) && r.price && Number(r.price) <= Number(a.threshold)); if (m) hit = `${m.item} at ${m.brand} is ${fmt(m.price)}/${m.unit} — under your ${fmt(a.threshold)} alert.`; }
-    if (hit) { await notify(t, "alert", "Price alert · " + a.kind, hit, { type: "alert", id: a.id }); await sb.from("ss_alerts").update({ last_fired: new Date().toISOString() }).eq("id", a.id); fired.push({ id: a.id, hit }); }
+    if (hit) { await notify(t, "alert", "Price alert · " + a.kind, hit, { type: "alert", id: a.id }); if (a.channel === "sms") { const { data: tn } = await sb.from("ss_tenants").select("settings").eq("id", t).maybeSingle(); if (tn?.settings?.notify) await send(t, "sms", tn.settings.notify, "Price alert: " + hit, { type: "alert", id: a.id }); } await sb.from("ss_alerts").update({ last_fired: new Date().toISOString() }).eq("id", a.id); fired.push({ id: a.id, hit }); }
   }
   return fired;
 }
@@ -110,6 +110,7 @@ export async function sourcing(path: string, req: Request, url: URL, body: any, 
     const { data: r } = await sb.from("ss_reservations").insert({ tenant_id: t, vendor_id: v?.id ?? null, job_id: body.job_id || null, brand: v?.brand ?? body.brand, item: body.item, start_date: body.start_date, days: Number(body.days || 1), qty: Number(body.qty || 1), est_total: Number(body.est_total || 0), contact: body.contact || "Charlie · (225) 241-3069", notes: body.notes || "", status: "requested" }).select().single();
     const when = `${dLabel(body.start_date)} · ${body.days || 1} day${Number(body.days || 1) > 1 ? "s" : ""}`;
     const how = v?.meta?.reserve === "web" ? `Reserve online at ${v.meta.url} — deposit ${fmt(body.deposit || 0)} due at pickup.` : `Quote request texted to ${v?.name ?? body.brand} (${v?.phone ?? ""}). Expect a confirmation during branch hours.`;
+    if (v?.meta?.reserve !== "web" && v?.phone) await send(t, "sms", v.phone, `Scag Scapes LLC (Charlie, 225-241-3069) requesting: ${body.qty || 1}× ${body.item}, ${when}, pickup 7am${body.notes ? ". " + body.notes : ""}. Please reply with availability + rate. Job: ${body.job_id ? "see PO" : "Baton Rouge"}.`, { type: "reservation", id: r.id });
     await notify(t, "reservation", `Reservation requested · ${body.item}`, `${v?.name ?? body.brand} · ${when} · est ${fmt(body.est_total || 0)}. ${how}`, { type: "reservation", id: r.id });
     await event(t, "Equipment requested", body.item, `${v?.name ?? body.brand} · ${when} · est ${fmt(body.est_total || 0)}.`, { type: "reservation", id: r.id });
     // demo: chains confirm after a short delay (simulated by client polling)
@@ -136,6 +137,8 @@ export async function sourcing(path: string, req: Request, url: URL, body: any, 
   }
   if (path === "/sourcing/fuel/report" && req.method === "POST") { const { data } = await sb.from("ss_fuel_reports").insert({ tenant_id: t, vendor_id: body.vendor_id, fuel: body.fuel || "diesel", price: Number(body.price), note: body.note || "" }).select().single(); await event(t, "Fuel price reported", body.fuel || "diesel", `$${Number(body.price).toFixed(3)} at station`, { type: "fuel", id: data.id }); return json(data); }
 
+  if (path === "/outbox" && req.method === "GET") { const { data } = await sb.from("ss_outbox").select("*").eq("tenant_id", t).order("created_at", { ascending: false }).limit(60); return json(data ?? []); }
+  if (path === "/integrations") { const i = integrations(); return json({ ...i, mode: { sms: i.twilio ? "live" : "simulated", email: i.resend ? "live" : "simulated", payments: i.stripe ? "live" : "placeholder links", search: i.brave ? "brave" : "instant answers only" } }); }
   if (path === "/notifications" && req.method === "GET") { const { data } = await sb.from("ss_notifications").select("*").eq("tenant_id", t).order("created_at", { ascending: false }).limit(50); return json(data ?? []); }
   if (path === "/notifications/read" && req.method === "POST") { let q = sb.from("ss_notifications").update({ read: true }).eq("tenant_id", t); if (body.ids?.length) q = q.in("id", body.ids); await q; return json({ ok: true }); }
   if (path === "/alerts" && req.method === "GET") { const { data } = await sb.from("ss_alerts").select("*").eq("tenant_id", t).order("created_at", { ascending: false }); return json(data ?? []); }

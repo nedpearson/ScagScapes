@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-export const VERSION = "1.1.0";
+export const VERSION = "1.2.0";
 export const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 export const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -75,8 +75,35 @@ export async function tenantFrom(req: Request) {
 export async function event(t: string, kind: string, who: string, body: string, ref?: { type: string; id: string }) {
   await sb.from("ss_events").insert({ tenant_id: t, kind, who, body, ref_type: ref?.type, ref_id: ref?.id });
 }
+export const integrations = () => ({
+  twilio: !!(Deno.env.get("TWILIO_ACCOUNT_SID") && Deno.env.get("TWILIO_AUTH_TOKEN") && Deno.env.get("TWILIO_FROM")),
+  stripe: !!Deno.env.get("STRIPE_SECRET_KEY"),
+  brave: !!Deno.env.get("BRAVE_API_KEY"),
+  resend: !!Deno.env.get("RESEND_API_KEY"),
+});
+// Outbound message: real Twilio/Resend when secrets exist, otherwise logged as "simulated" so the demo shows exactly what would go out.
+export async function send(t: string, channel: "sms" | "email" | "push", to: string, body: string, ref?: { type: string; id: string }) {
+  const row: any = { tenant_id: t, channel, to, body, status: "simulated", ref_type: ref?.type, ref_id: ref?.id };
+  try {
+    if (channel === "sms" && integrations().twilio) {
+      const sid = Deno.env.get("TWILIO_ACCOUNT_SID")!, tok = Deno.env.get("TWILIO_AUTH_TOKEN")!, from = Deno.env.get("TWILIO_FROM")!;
+      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, { method: "POST", headers: { Authorization: "Basic " + btoa(sid + ":" + tok), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ To: to.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1"), From: from, Body: body }) });
+      const j = await r.json(); if (r.ok) { row.status = "sent"; row.provider = "twilio"; row.provider_id = j.sid; } else { row.status = "failed"; row.provider = "twilio"; row.error = j.message; }
+    } else if (channel === "email" && integrations().resend) {
+      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: "Bearer " + Deno.env.get("RESEND_API_KEY"), "content-type": "application/json" }, body: JSON.stringify({ from: "Scag Scapes <charlie@scagscapes.com>", to: [to], subject: body.split("\n")[0].slice(0, 80), text: body }) });
+      const j = await r.json(); if (r.ok) { row.status = "sent"; row.provider = "resend"; row.provider_id = j.id; } else { row.status = "failed"; row.provider = "resend"; row.error = JSON.stringify(j).slice(0, 200); }
+    }
+  } catch (e) { row.status = "failed"; row.error = (e as Error).message; }
+  await sb.from("ss_outbox").insert(row); return row.status;
+}
+// Deposit / balance link: real Stripe Checkout when a key exists, else a labeled placeholder.
+export async function payLink(t: string, amount: number, label: string, ref: string) {
+  if (!integrations().stripe) return `pay.scagscapes.com/${ref}`;
+  try { const r = await fetch("https://api.stripe.com/v1/checkout/sessions", { method: "POST", headers: { Authorization: "Bearer " + Deno.env.get("STRIPE_SECRET_KEY"), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ mode: "payment", "line_items[0][price_data][currency]": "usd", "line_items[0][price_data][product_data][name]": label, "line_items[0][price_data][unit_amount]": String(Math.round(amount * 100)), "line_items[0][quantity]": "1", success_url: "https://scagscapes.bridgebox.ai/?paid=" + ref, cancel_url: "https://scagscapes.bridgebox.ai/", "metadata[ref]": ref, "metadata[tenant]": t }) }); const j = await r.json(); return j.url || `pay.scagscapes.com/${ref}`; } catch { return `pay.scagscapes.com/${ref}`; }
+}
 export async function msg(t: string, lead_id: string, who: "sys" | "cust" | "charlie", body: string) {
   await sb.from("ss_messages").insert({ tenant_id: t, lead_id, who, body });
+  if (who !== "cust") { const { data: l } = await sb.from("ss_leads").select("phone").eq("id", lead_id).maybeSingle(); if (l?.phone && /\d{3}/.test(l.phone)) await send(t, "sms", l.phone, body, { type: "lead", id: lead_id }); }
 }
 export async function tpl(t: string, key: string) {
   const { data } = await sb.from("ss_automations").select("enabled,template").eq("tenant_id", t).eq("key", key).maybeSingle();

@@ -13,7 +13,7 @@
 //   POST /reset                       reseed demo tenant
 // Auth: header x-ss-key = ss_tenants.api_key. Tenant "demo" needs no key (public demo).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, COST_RATIO, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType } from "./core.ts";
+import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType, payLink, integrations } from "./core.ts";
 import { sourcing } from "./sourcing.ts";
 
 // ---------- stage machine ----------
@@ -51,7 +51,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   const url = new URL(req.url); const path = url.pathname.replace(/^.*\/ss-api/, "") || "/";
   try {
-    if (path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString() });
+    if (path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString(), integrations: integrations() });
     const tenant = await tenantFrom(req); const t = tenant.id; const settings = tenant.settings ?? {};
     const body = req.method === "POST" ? (await req.json().catch(() => ({}))) : {};
 
@@ -102,7 +102,8 @@ Deno.serve(async (req) => {
       const { data: job } = await sb.from("ss_jobs").insert({ tenant_id: t, lead_id: lead.id, quote_id: quote.id, name: lead.name, service_type: st, scope: p.summary, value: p.total, material_cost: p.material_cost, labor_hours: p.labor_hours, stage: 0, stage_history: [iso(new Date())] }).select().single();
       await sb.from("ss_leads").update({ status: "quoted" }).eq("id", lead.id);
       const dep = Math.round(p.total * (settings.deposit_pct ?? 30) / 100);
-      await msg(t, lead.id, "sys", `Your quote is ready: ${p.summary} — ${fmt(p.total)}. ${settings.warranty ?? "1-year workmanship warranty"}. Deposit link (${settings.deposit_pct ?? 30}%): pay.scagscapes.com/q-${quote.id.slice(0, 6)}`);
+      const link = await payLink(t, dep, `Deposit · ${p.summary}`, "q-" + quote.id.slice(0, 6));
+      await msg(t, lead.id, "sys", `Your quote is ready: ${p.summary} — ${fmt(p.total)}. ${settings.warranty ?? "1-year workmanship warranty"}. Deposit link (${settings.deposit_pct ?? 30}%): ${link}`);
       await event(t, "Quote sent", `${lead.name} · ${lead.area}`, `${p.summary} → ${fmt(p.total)}. Deposit link ${fmt(dep)}. Follow-ups scheduled day 2 · 5 · 12.`, { type: "job", id: job.id });
       return json({ ...p, quote_id: quote.id, job_id: job.id, deposit: dep });
     }
