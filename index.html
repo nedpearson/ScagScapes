@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="description" content="Scag Scapes Command — the automated sales-to-billing operating layer for Scag Scapes LLC, Baton Rouge. Demo with sample data.">
+<meta name="description" content="Scag Scapes Command — the automated sales-to-billing operating layer for Scag Scapes LLC, Baton Rouge. Live demo on Supabase.">
 <meta name="theme-color" content="#1B2320">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -301,6 +301,23 @@ body.phoneview .phonewrap{display:flex}
   .tabbar button .n:empty{display:none}
   .tabbar button{position:relative}
 }
+
+/* v3 additions */
+body.busy{cursor:progress}
+.ck{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;font-size:12px;font-weight:700}
+.ck.ok{background:var(--ok-soft);color:var(--ok)} .ck.half{background:var(--warn-soft);color:var(--warn)} .ck.no{background:var(--crit-soft);color:var(--crit)}
+table.cmp th{text-align:center;font-size:10px} table.cmp th:first-child{text-align:left} table.cmp td:first-child{min-width:210px}
+table.cmp tr.us td{background:var(--water-soft)} table.cmp tr.us td b{color:var(--water-ink)}
+.void{display:grid;grid-template-columns:1.1fr .8fr 1.4fr auto;gap:10px 14px;padding:11px 0;border-bottom:1px solid var(--line2);font-size:12.5px;align-items:start}
+.void:last-child{border-bottom:0}
+.void .vf{font-weight:600} .void .vw{color:var(--ink3)} .void .ve{color:var(--ink2)}
+.fact{font-size:13px;padding:8px 0;border-bottom:1px solid var(--line2);color:var(--ink2)} .fact:last-child{border-bottom:0} .fact a{color:var(--water);text-decoration:none;font-size:12px;white-space:nowrap}
+.out{background:var(--panel2);border-radius:4px;padding:10px 12px;font-size:11.5px;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto;margin:0}
+.counts{display:grid;grid-template-columns:repeat(3,1fr);gap:6px} .counts .stat .v{font-size:20px}
+.schema .tbl{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:7px 0;border-bottom:1px solid var(--line2);font-size:12.5px;color:var(--ink2)} .schema .tbl:last-child{border-bottom:0} .schema .tbl b{color:var(--ink);font-weight:500;font-size:12px}
+#modeChip{display:inline-flex}
+a{color:var(--water)}
+@media (max-width:760px){.void{grid-template-columns:1fr}.counts{grid-template-columns:repeat(2,1fr)}.schema .tbl{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -319,12 +336,15 @@ body.phoneview .phonewrap{display:flex}
     <button data-act="nav" data-id="rain">Rain trigger</button>
     <button data-act="nav" data-id="billing">Billing &amp; reviews</button>
     <button data-act="nav" data-id="customers">Customers</button>
+    <button data-act="nav" data-id="reports">Reports</button>
+    <button data-act="nav" data-id="edge">Competitive edge</button>
+    <button data-act="nav" data-id="api">API &amp; data</button>
     <button data-act="nav" data-id="automations">Automations</button>
   </nav>
   <div class="chip-live" style="display:none"><i></i> Live</div>
   <div class="foot">
     <div class="chip-live"><i></i> Automations on</div>
-    <div style="margin-top:8px"><b>Charlie Mascagni</b><br>Owner · civil engineer<br>Baton Rouge, LA</div>
+    <div style="margin-top:8px"><b>Charlie Mascagni</b><br>Owner · civil engineer<br>Baton Rouge, LA</div><div style="margin-top:6px;font-size:10.5px">Powered by BridgeBox.ai</div>
     <button class="btn sm ghost" data-act="reset" style="margin-top:10px;color:var(--rail-mute)">Reset demo data</button>
   </div>
 </aside>
@@ -333,6 +353,7 @@ body.phoneview .phonewrap{display:flex}
   <div class="topbar">
     <div><h2 id="secTitle">Overview</h2><div class="sub" id="secSub"></div></div>
     <div class="right">
+      <span id="modeChip"></span>
       <button class="btn sm phonebtn" data-act="phone">Phone preview</button>
       <span class="demo-tag">Demo · sample data</span>
     </div>
@@ -348,6 +369,9 @@ body.phoneview .phonewrap{display:flex}
   <section class="section" id="s-rain"></section>
   <section class="section" id="s-billing"></section>
   <section class="section" id="s-customers"></section>
+  <section class="section" id="s-reports"></section>
+  <section class="section" id="s-edge"></section>
+  <section class="section" id="s-api"></section>
   <section class="section" id="s-automations"></section>
 </main>
 </div>
@@ -378,161 +402,229 @@ body.phoneview .phonewrap{display:flex}
 (function(){
 'use strict';
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
-const fmt=n=>'$'+Math.round(n).toLocaleString('en-US');
+const fmt=n=>'$'+Math.round(n||0).toLocaleString('en-US');
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const rnd=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
 const uid=()=>Math.random().toString(36).slice(2,8);
-const TODAY=new Date(2026,8,15); // Tue Sep 15 2026 (demo clock)
+const TODAY=(()=>{const d=new Date();d.setHours(12,0,0,0);return d})();
 const DAYN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const iso=d=>d.toISOString().slice(0,10);
+const iso=d=>{const x=new Date(d);return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0')};
 const addD=(d,n)=>{const x=new Date(d);x.setDate(x.getDate()+n);return x};
 const nowT=()=>new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 const dLabel=s=>{const d=new Date(s+'T12:00');return DAYN[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate()};
+const tmin=t=>{const m=String(t).match(/^(\d+):(\d+)/);if(!m)return 0;let h=+m[1];if(h<7)h+=12;return h*60+ +m[2]};
+const byTime=(a,b)=>tmin(a.time)-tmin(b.time);
 const INFRAME=window.self!==window.top;
-if(INFRAME)document.documentElement.classList.add('inframe');
+const tAgo=s=>{const ms=Date.now()-new Date(s).getTime();const m=Math.round(ms/60000);if(m<1)return 'just now';if(m<60)return m+' min ago';const h=Math.round(m/60);if(h<24)return h+' h ago';const d=Math.round(h/24);return d===1?'yesterday':d<7?d+' days ago':d<30?Math.round(d/7)+' wk ago':Math.round(d/30)+' mo ago'};
+const tShort=s=>{const d=new Date(s);const same=iso(d)===iso(new Date());return same?d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):DAYN[d.getDay()]+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})};
 
-/* ---------- state ---------- */
+/* ---------- config: live backend ---------- */
+const CFG={url:'https://cscowglyrgxqxwcnftzt.supabase.co',key:'sb_publishable_M1JCtQtF7B2NgcHrlH5JDQ_amdA8kr9',fn:'/functions/v1/ss-api',tenant:'demo'};
+let MODE=(()=>{try{return localStorage.getItem('ssc-mode')||'live'}catch(e){return 'live'}})();
+const LIVE=()=>MODE==='live';
+const LAB_RATE=45;
+async function api(path,body,method){const r=await fetch(CFG.url+CFG.fn+path,{method:method||(body?'POST':'GET'),headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('API '+r.status));return j}
+async function rest(table,query,opts={}){const r=await fetch(CFG.url+'/rest/v1/'+table+(query?'?'+query:''),{method:opts.method||'GET',headers:{apikey:CFG.key,Authorization:'Bearer '+CFG.key,'content-type':'application/json',Prefer:opts.prefer||'return=representation'},body:opts.body?JSON.stringify(opts.body):undefined});if(!r.ok){const t=await r.text();throw new Error(table+' '+r.status+' '+t.slice(0,120))}const t=await r.text();return t?JSON.parse(t):null}
+const ins=(t,row)=>rest(t,'',{method:'POST',body:{tenant_id:CFG.tenant,...row}});
+const up=(t,patch,q)=>rest(t,q,{method:'PATCH',body:patch});
+const del=(t,q)=>rest(t,q,{method:'DELETE'});
+const upsert=(t,rows)=>rest(t,'',{method:'POST',body:rows,prefer:'resolution=merge-duplicates,return=representation'});
+
+/* ---------- constants ---------- */
 const TYPES={drain:'French drain',pad:'Parking pad / driveway',fence:'Cedar fence',patio:'Patio / hardscape',sod:'Sod & renovation',porch:'Screened porch'};
 const STAGES=['Quoted','Accepted · deposit','Materials ordered','Scheduled','Complete · paid'];
-const KEY='ssc-demo-v2';
-let S=null;
+const COST_RATIO={drain:.27,pad:.38,fence:.42,patio:.4,sod:.45,porch:.35};
+const KEY='ssc-demo-v3';
+const TPLDEF={textback:'Hey, this is Scag Scapes — sorry we missed you, Charlie\'s on a drain install. Are you dealing with standing water, a driveway/pad, fence, or patio? Reply with a word and I\'ll get you the next open estimate slot. Free, no pressure.',
+ formreply:'Thanks for reaching out to Scag Scapes. Charlie does 3D elevation mapping so the fix actually works. Next open estimate slots: {slots}. Reply with one, or book here: scagscapes.com/book',
+ d2:'Any questions on the quote? Happy to walk through the elevation map with you.',
+ d5:'Here\'s a yard we finished last week with the same problem as yours — dry after two storms. [photo]',
+ d12:'Heads up — install slots are filling before the wet season. Want me to hold one for you?',
+ rainpre:'Scag Scapes here — {inches}" of rain coming {day}. Want your yard mapped before or right after, while it\'s holding water?',
+ rainpost:'Morning — Scag Scapes here. BR got {inches}" overnight. If your yard is holding water right now, that\'s the best time to map it. Charlie has {slots} site-visit slots this week. Reply YES or book: scagscapes.com/book',
+ reminder:'See you at {time} tomorrow — Charlie',
+ review:'Thank you for trusting us with your yard! If we did right by you, a Google review helps a small crew more than you know: g.page/scagscapes/review',
+ check30:'It\'s been 30 days — how\'s it draining? If anything looks off after a storm, text me a photo and I\'ll come look. — Charlie',
+ warranty11:'Your 1-year workmanship warranty is coming up. Want a free walk-through before it ends? And if a neighbor needs help, we\'ll take $200 off their drain for the referral.'};
+const AUTOS=[['textback','Missed-call text-back','Any unanswered call gets a text within 60 seconds.'],['formreply','Web-form auto-reply','Instant text + email with the next two open slots.'],['followup','Quote follow-ups · day 2 / 5 / 12','Runs until the deposit lands or the lead is marked lost.'],['rainpre','Pre-rain campaign','Day before a ≥ threshold rain: open quotes.'],['rainpost','Post-rain campaign','Morning after: every past lead and customer.'],['po','Auto purchase orders','Deposit paid → BOM → POs to Ferguson / Southern Aggregates / Site One.'],['reminder','Appointment reminders','6:00 PM night-before text; "on the way" text.'],['invoice','Auto invoicing','Deposit link on acceptance; balance link on completion.'],['review','Review ask · +24h','One text with the direct Google review link.'],['check30','30-day check-in','"How\'s it draining?" — repeat-work opener.'],['warranty11','Warranty walk · +11 mo','Free walk-through offer + $200 referral.']];
+const TPLS=[['textback','Missed-call text-back'],['formreply','Web-form auto-reply'],['d2','Follow-up · day 2'],['d5','Follow-up · day 5'],['d12','Follow-up · day 12'],['rainpre','Pre-rain'],['rainpost','Post-rain'],['reminder','Appointment reminder'],['review','Review ask'],['check30','30-day check-in'],['warranty11','Warranty walk']];
+
+/* ---------- competitive intelligence (verified 2026-09-15; see Edge page for sources) ---------- */
+const COMP=[
+ {n:'Scag Scapes (with Command)',us:true,hq:'Baton Rouge — local',price:1,book:1,sla:1,warr:1,tech:1,rain:1,proof:1,fin:0,notes:'Published $25–60/LF · self-book · <60s text-back · 1-yr workmanship · Moasure 3D elevation mapping · rain-day site visits',urls:['https://scagscapes.com']},
+ {n:'Big Easy Drainage',hq:'New Orleans (504) — BR is 1 of 10+ satellite pages',price:0,book:0,sla:0,warr:0,tech:0,rain:0,proof:0,fin:0,notes:'"Book a Service Instantly" copy but only a quote form; "Premium Warranty" badge with no terms; hours inconsistent (8–3 vs 9–6); Mon–Fri only',urls:['https://bigeasydrainage.com/service-area/baton-rouge','https://bigeasydrainage.com']},
+ {n:'TurnKey Drainage',hq:'New Orleans — BR is 1 of 13 service-area pages',price:0,book:0,sla:0,warr:0,tech:0,rain:0,proof:0,fin:1,notes:'GoHighLevel form; "Best Price Guarantee" but no warranty; also lists bathtub/kitchen drains (muddled); has financing + 7-day hours',urls:['https://turnkeydrainage.com/service-areas/baton-rouge','https://www.turnkeydrainage.com/contact/']},
+ {n:'Mowmentum Grounds',hq:'Denham Springs — local',price:0,book:0,sla:.5,warr:0,tech:0,rain:0,proof:1,fin:0,notes:'"Often same day" (soft); claims 100+ 5-star reviews but none displayed; credit card on file required; has before/after gallery',urls:['https://mowmentumgrounds.com/services/french-drains']},
+ {n:'Flora Landscape Contractors',hq:'Baton Rouge — local (est. 2008)',price:0,book:0,sla:0,warr:0,tech:0,rain:0,proof:0,fin:0,notes:'Call-first funnel ("Schedule a Call"); drainage is a sub-page of a high-end design firm; 4.7★/48 on Halstead widget; complaint: dead sod only partially replaced',urls:['https://www.floralandscapecontractors.com/drainage-grading-services','https://www.bbb.org/us/la/baton-rouge/profile/landscape-contractors/flora-landscape-contractors-llc-0835-90025477']},
+ {n:'WCK Foundation Repair',hq:'Denham Springs — local (since 1981)',price:0,book:0,sla:0,warr:.5,tech:0,rain:0,proof:0,fin:1,notes:'Lifetime warranty covers foundation piers only — no drainage warranty; 4.8★/139 Google; BBB A+; 4-person crew; drainage is secondary',urls:['https://wckfoundationrepair.com','https://www.bbb.org/us/la/denham-springs/profile/foundation-contractors/wck-foundation-repair-0835-1002111']},
+ {n:'LaGreen Landscape',hq:'Baton Rouge — local',price:0,book:0,sla:0,warr:0,tech:0,rain:0,proof:1,fin:0,notes:'"Call to schedule" only; estimates by email; no reviews shown; project photos + service-area map',urls:['https://lagreenscape.com/drainage-installation/']},
+ {n:'Hernandez Lawnscape',hq:'Baton Rouge — local',price:0,book:0,sla:.5,warr:.5,tech:0,rain:.5,proof:0,fin:0,notes:'Only competitor claiming 24/7 emergency response; "100% satisfaction" with no term; one testimonial on site',urls:['https://hernandezlawnscape.com/drainage']},
+];
+const COMPCOLS=[['price','Pricing shown'],['book','Online booking'],['sla','Response promise'],['warr','Drainage warranty (terms)'],['tech','Elevation / engineering'],['rain','Rain-day response'],['proof','Before / after'],['fin','Financing']];
+const THEMES=[
+ {flaw:'Nobody publishes a price',who:'All 7 competitors',exploit:'$25–60/LF on the site and in the first text. Price anxiety is the #1 reason a homeowner stalls; naming a range gets the site visit.',feat:'Quote builder · public price range'},
+ {flaw:'No true online booking — every funnel ends in "call us" or a form',who:'All 7 (Big Easy even advertises "Book Instantly")',exploit:'Self-serve estimate slots offered by text within 60s; slot accepted with one word.',feat:'Schedule · open slots · SMS intent'},
+ {flaw:'No stated response time',who:'Big Easy, TurnKey, Flora, WCK, LaGreen',exploit:'"You\'ll hear from us in 60 seconds, day or night." Measured and shown on the dashboard.',feat:'Speed-to-lead KPI · text-back'},
+ {flaw:'No drainage warranty with years and coverage',who:'All 7 (WCK covers piers only)',exploit:'1-year workmanship warranty printed on every quote, with an 11-month warranty walk that also asks for the referral.',feat:'Quote PDF · warranty walk automation'},
+ {flaw:'No technical differentiator — nobody maps elevation',who:'All 7',exploit:'Moasure 3D survey attached to every drain quote. "Engineer who actually digs." Competitors guess the fall; Charlie measures it.',feat:'Quote builder · Moasure LF input · PDF attachment'},
+ {flaw:'No rain-day response',who:'All except Hernandez (generic 24/7)',exploit:'NWS threshold fires pre-rain and post-rain campaigns; held slots convert while the yard is still underwater.',feat:'Rain trigger'},
+ {flaw:'Reviews claimed but not displayed or countable',who:'Big Easy, TurnKey, Mowmentum, LaGreen, Hernandez',exploit:'Review ask 24h after final payment, with the direct link. Reviews auto-embedded on the site.',feat:'Billing & reviews'},
+ {flaw:'Out-of-town firms treating BR as an SEO satellite',who:'Big Easy, TurnKey (both 504)',exploit:'Local owner, local number, local install photos by neighborhood. Parish-by-parish landing pages.',feat:'Customers · area tags'},
+];
+const FACTS=[
+ ['Baton Rouge averages 60.65" of rain a year — roughly double the U.S. average.','https://usclimatedata.com/climate/baton-rouge/louisiana/united-states/usla0033'],
+ ['May 8, 2026: flash flooding closed ~13 EBR roads; vehicle rescue on Burbank.','https://www.wafb.com/2026/05/08/flash-flooding-storms-slam-metro-baton-rouge/'],
+ ['May 10, 2026: BR homeowner with 6–7 years of backyard flooding and 7+ unanswered 311 complaints.','https://www.wafb.com/2026/05/10/baton-rouge-woman-battles-years-backyard-flooding-unanswered-complaints/'],
+ ['Aug 2026: EBR has $150M+ of drainage projects waiting on FEMA; officials say maintenance needs new revenue.','https://www.wbrz.com/news/rising-above-east-baton-rouge-drainage-work-targets-next-1-000-year-flood-risk'],
+ ['27% of inbound home-services calls go unanswered; <3% of voicemail callers leave a message.','https://www.higrovi.com/blog/contractor-missed-call-report-2026'],
+ ['Responding within 5 minutes makes a lead 21× more likely to qualify than at 30 minutes (HBR/MIT, via aggregator).','https://www.higrovi.com/blog/contractor-missed-call-report-2026'],
+ ['85% of callers who can\'t reach a business won\'t call back; ~$1,200 average lost per missed home-services call.','https://www.hicira.com/missed-call-statistics'],
+];
+const API_DOCS=[
+ ['GET','/health','Liveness + version',null],
+ ['GET','/kpis','Tenant KPIs from the ss_kpis view',null],
+ ['GET','/slots?n=3','Next open estimate slots (7:30 / 4:00 / 5:30, no Sundays)',null],
+ ['POST','/webhooks/call-missed','Twilio "no-answer" → creates lead, sends text-back',{from:'(225) 555-0311'}],
+ ['POST','/webhooks/form','Website form → lead + auto-reply with 2 open slots',{name:'Web Test',phone:'(225) 555-0777',area:'Zachary',need:'Back yard holds water for days'}],
+ ['POST','/webhooks/sms','Inbound SMS → intent: slot pick / YES / price / referral',{from:'(225) 555-0311',body:'yes'}],
+ ['POST','/quote','Price + BOM from the engine (send:true also creates the job and texts the link)',{service_type:'drain',inputs:{lf:120,depth:24,pipe:4,soil:1.12,basins:2,pop:1,sod:1}}],
+ ['POST','/jobs/:id/advance','Stage machine: deposit → POs → schedule → paid; fires the automations',{dir:1}],
+ ['POST','/rain/check','Evaluate NWS forecast vs threshold; fire:"post" sends the campaign',{}],
+ ['POST','/payments/webhook','Stripe-style payment event → ledger + stage',{job_id:'<job uuid>',kind:'deposit'}],
+ ['POST','/reset','Reseed the demo tenant',{}],
+];
+const INTEGRATIONS=[['Twilio','Voice + SMS','Missed-call webhook, inbound SMS, outbound texts. ~$0.01/SMS.'],['NWS API','Weather','api.weather.gov gridpoint forecast for BTR; cron every 6h → /rain/check.'],['Stripe','Payments','Deposit + balance links; webhook → /payments/webhook.'],['Google Business','Reviews','Direct review link; reviews pulled into the site.'],['Supabase','Database + API','Postgres (RLS per tenant), Edge Function ss-api, Realtime for the feed.'],['Moasure','Field survey','Elevation CSV/PDF attached to the drain quote.'],['QuickBooks','Accounting','Invoices + payments synced nightly (Commander NE bridge).'],['Supplier POs','Ferguson · Southern Aggregates · Site One','BOM → emailed POs on deposit; delivery matched to install day.']];
+
+/* ---------- local seed ---------- */
 function seed(){
-  const T=iso(TODAY);
+  const T=iso(TODAY);const d=n=>iso(addD(TODAY,n));const ts=(n,h,m=0)=>{const x=addD(TODAY,n);x.setHours(h,m,0,0);return x.toISOString()};
   const leads=[
-    {id:'l1',name:'K. Guidry',phone:'(225) 555-0187',area:'Denham Springs',addr:'9114 Florida Blvd',src:'Missed call',type:'drain',need:'Standing water, side yard',status:'won',resp:58,created:iso(addD(TODAY,-9)),slot:null,
-     thread:[{who:'sys',t:'Sep 6, 10:14 AM',msg:'Hey, this is Scag Scapes — sorry we missed you, Charlie\'s on a drain install. Standing water, driveway/pad, fence, or patio? Reply with a word and I\'ll get you the next open estimate slot.'},{who:'cust',t:'Sep 6, 10:19 AM',msg:'Water. Side yard is a swamp after every rain.'},{who:'sys',t:'Sep 6, 10:19 AM',msg:'Got it. Charlie maps the yard in 3D so the drain actually flows. Open site visits: Tue 7:30 or Wed 4:00 — which works?'},{who:'cust',t:'Sep 6, 10:22 AM',msg:'Tue 7:30'},{who:'sys',t:'Sep 6, 10:22 AM',msg:'Booked. Tue Sep 8, 7:30 AM at 9114 Florida Blvd. You\'ll get a reminder the night before.'},{who:'sys',t:'Sep 8, 9:02 AM',msg:'Your quote is ready: 88 LF French drain, 24" deep, 4" SDR-35 — $6,200. Deposit link (30%): pay.scagscapes.com/q-2214'},{who:'cust',t:'Sep 9, 6:40 PM',msg:'Paid. When can you start?'}],notes:'Clay. Downspouts dump at foundation — tie in 2.'},
-    {id:'l2',name:'R. Thibodeaux',phone:'(225) 555-0233',area:'Gonzales',addr:'38211 Hwy 621',src:'Web form',type:'drain',need:'French drain, back yard',status:'quoted',resp:41,created:iso(addD(TODAY,-4)),slot:null,quoted:iso(addD(TODAY,-2)),
-     thread:[{who:'sys',t:'Sep 11, 2:03 PM',msg:'Thanks for reaching out to Scag Scapes. Charlie has an estimate slot Sat 7:30 or Mon 4:00 — want one? Or book: scagscapes.com/book'},{who:'cust',t:'Sep 11, 2:10 PM',msg:'Sat works'},{who:'sys',t:'Sep 13, 11:41 AM',msg:'Quote: 96 LF · 24" · 4" SDR-35 — $4,320. 1-yr workmanship warranty. Deposit link: pay.scagscapes.com/q-2219'},{who:'sys',t:'Sep 15, 9:00 AM',msg:'Any questions on the quote? Happy to walk through the elevation map with you.'}],notes:''},
-    {id:'l3',name:'(225) 555-0142',phone:'(225) 555-0142',area:'Baton Rouge',addr:'',src:'Missed call',type:'pad',need:'Parking pad',status:'booked',resp:52,created:T,slot:{date:iso(addD(TODAY,2)),time:'4:00'},
-     thread:[{who:'sys',t:'10:15 AM',msg:'Hey, this is Scag Scapes — sorry we missed you, Charlie\'s on a drain install. Standing water, driveway/pad, fence, or patio?'},{who:'cust',t:'10:17 AM',msg:'Need a parking pad for a boat trailer'},{who:'sys',t:'10:17 AM',msg:'We pour a lot of those. Thu 4:00 or Fri 7:30 for a measure?'},{who:'cust',t:'10:18 AM',msg:'Thursday'},{who:'sys',t:'10:18 AM',msg:'Booked — Thu Sep 17, 4:00 PM. What\'s the address?'}],notes:''},
-    {id:'l4',name:'A. Fontenot',phone:'(225) 555-0311',area:'Central',addr:'12908 Greenwell Springs Rd',src:'Google',type:'drain',need:'Drain + sod restore',status:'quoted',resp:37,created:iso(addD(TODAY,-8)),quoted:iso(addD(TODAY,-5)),
-     thread:[{who:'sys',t:'Sep 10, 4:30 PM',msg:'Quote: 110 LF · 24" · 4" SDR-35 + St. Augustine restore — $5,940. Deposit link: pay.scagscapes.com/q-2216'},{who:'sys',t:'Sep 12, 9:00 AM',msg:'Any questions on the quote?'},{who:'sys',t:'Sep 15, 9:00 AM',msg:'Here\'s the Zachary yard we finished last week — same problem as yours, dry after two storms. [photo]'}],notes:'Comparing with one other bid.'},
-    {id:'l5',name:'S. Nguyen',phone:'(225) 555-0466',area:'Prairieville',addr:'17420 Airline Hwy',src:'Referral',type:'fence',need:'Cedar privacy fence, ~180 LF',status:'booked',resp:0,created:iso(addD(TODAY,-1)),slot:{date:iso(addD(TODAY,3)),time:'7:30'},thread:[{who:'charlie',t:'Sep 14, 6:10 PM',msg:'Hey Sam — Dana Richard gave me your number. Fri 7:30 work to walk the property line?'},{who:'cust',t:'Sep 14, 6:25 PM',msg:'Yes sir. See you then.'}],notes:'Referral from Dana R.'},
-    {id:'l6',name:'Dana R.',phone:'(225) 555-0091',area:'Zachary',addr:'4520 Main St',src:'Google',type:'drain',need:'Back yard pond',status:'won',resp:44,created:iso(addD(TODAY,-30)),thread:[{who:'sys',t:'Aug 17',msg:'Quote: 140 LF · 24" — $6,900.'},{who:'cust',t:'Aug 18',msg:'Let\'s do it.'},{who:'sys',t:'Sep 12',msg:'Final invoice paid — thank you! If we did right by you, a Google review helps a small crew more than you know: g.page/scagscapes/review'},{who:'cust',t:'Sep 13',msg:'Done. Y\'all were great.'}],notes:''},
-    {id:'l7',name:'M. Hebert',phone:'(225) 555-0722',area:'Baker',addr:'3300 Groom Rd',src:'Web form',type:'pad',need:'Pad 20×40, RV',status:'won',resp:39,created:iso(addD(TODAY,-12)),thread:[{who:'sys',t:'Sep 4',msg:'Quote: 800 SF 4" fiber-mesh concrete pad — $7,800.'},{who:'cust',t:'Sep 5',msg:'Deposit sent.'}],notes:''},
-    {id:'l8',name:'J. Boudreaux',phone:'(225) 555-0555',area:'Central',addr:'',src:'Referral',type:'pad',need:'Parking pad',status:'won',resp:0,created:iso(addD(TODAY,-40)),thread:[],notes:'Referred Hebert.'},
-    {id:'l9',name:'T. Broussard',phone:'(225) 555-0808',area:'Prairieville',addr:'',src:'Missed call',type:'patio',need:'Travertine patio',status:'lost',resp:47,created:iso(addD(TODAY,-20)),thread:[{who:'sys',t:'Aug 27',msg:'Quote: 320 SF travertine — $9,600.'},{who:'cust',t:'Sep 2',msg:'Going to hold off till spring.'}],notes:'Re-engage March.'},
+    {id:'l1',name:'K. Guidry',phone:'(225) 555-0187',area:'Denham Springs',addr:'9114 Florida Blvd',src:'Missed call',type:'drain',need:'Standing water, side yard',status:'won',resp:58,created:d(-9),slot:null,notes:'Clay. Downspouts dump at foundation — tie in 2.',
+     thread:[{who:'sys',t:ts(-9,10,14),msg:TPLDEF.textback},{who:'cust',t:ts(-9,10,19),msg:'Water. Side yard is a swamp after every rain.'},{who:'sys',t:ts(-9,10,19),msg:'Got it. Charlie maps the yard in 3D so the drain actually flows. Open site visits: Tue 7:30 or Wed 4:00 — which works?'},{who:'cust',t:ts(-9,10,22),msg:'Tue 7:30'},{who:'sys',t:ts(-9,10,22),msg:'Booked. You\'ll get a reminder the night before.'},{who:'sys',t:ts(-7,9,2),msg:'Your quote is ready: 88 LF French drain, 24" deep, 4" SDR-35 — $6,200. Deposit link (30%): pay.scagscapes.com/q-2214'},{who:'cust',t:ts(-6,18,40),msg:'Paid. When can you start?'}]},
+    {id:'l2',name:'R. Thibodeaux',phone:'(225) 555-0233',area:'Gonzales',addr:'38211 Hwy 621',src:'Web form',type:'drain',need:'French drain, back yard',status:'quoted',resp:41,created:d(-4),slot:null,notes:'',
+     thread:[{who:'sys',t:ts(-4,14,3),msg:'Thanks for reaching out to Scag Scapes. Charlie has an estimate slot Sat 7:30 or Mon 4:00 — want one? Or book: scagscapes.com/book'},{who:'cust',t:ts(-4,14,10),msg:'Sat works'},{who:'sys',t:ts(-2,11,41),msg:'Quote: 96 LF · 24" · 4" SDR-35 — $4,320. 1-yr workmanship warranty. Deposit link: pay.scagscapes.com/q-2219'},{who:'sys',t:ts(0,9,0),msg:TPLDEF.d2}]},
+    {id:'l3',name:'(225) 555-0142',phone:'(225) 555-0142',area:'Baton Rouge',addr:'',src:'Missed call',type:'pad',need:'Parking pad for boat trailer',status:'booked',resp:52,created:T,slot:{date:d(2),time:'4:00'},notes:'',
+     thread:[{who:'sys',t:ts(0,10,15),msg:TPLDEF.textback},{who:'cust',t:ts(0,10,17),msg:'Need a parking pad for a boat trailer'},{who:'sys',t:ts(0,10,17),msg:'We pour a lot of those. Thu 4:00 or Fri 7:30 for a measure?'},{who:'cust',t:ts(0,10,18),msg:'Thursday'},{who:'sys',t:ts(0,10,18),msg:'Booked — Thu 4:00 PM. What\'s the address?'}]},
+    {id:'l4',name:'A. Fontenot',phone:'(225) 555-0311',area:'Central',addr:'12908 Greenwell Springs Rd',src:'Google',type:'drain',need:'Drain + sod restore',status:'quoted',resp:37,created:d(-8),slot:null,notes:'Comparing with one other bid.',
+     thread:[{who:'sys',t:ts(-5,16,30),msg:'Quote: 110 LF · 24" · 4" SDR-35 + St. Augustine restore — $5,940. Deposit link: pay.scagscapes.com/q-2216'},{who:'sys',t:ts(-3,9,0),msg:TPLDEF.d2},{who:'sys',t:ts(0,9,0),msg:TPLDEF.d5}]},
+    {id:'l5',name:'S. Nguyen',phone:'(225) 555-0466',area:'Prairieville',addr:'17420 Airline Hwy',src:'Referral',type:'fence',need:'Cedar privacy fence, ~180 LF',status:'booked',resp:0,created:d(-1),slot:{date:d(3),time:'7:30'},notes:'Referral from Dana R.',
+     thread:[{who:'charlie',t:ts(-1,18,10),msg:'Hey Sam — Dana Richard gave me your number. Fri 7:30 work to walk the property line?'},{who:'cust',t:ts(-1,18,25),msg:'Yes sir. See you then.'}]},
+    {id:'l6',name:'Dana R.',phone:'(225) 555-0091',area:'Zachary',addr:'4520 Main St',src:'Google',type:'drain',need:'Back yard pond',status:'won',resp:44,created:d(-30),slot:null,notes:'',thread:[{who:'sys',t:ts(-3,17,0),msg:TPLDEF.review},{who:'cust',t:ts(-2,9,0),msg:'Done. Y\'all were great.'}]},
+    {id:'l7',name:'M. Hebert',phone:'(225) 555-0722',area:'Baker',addr:'3300 Groom Rd',src:'Web form',type:'pad',need:'Pad 20×40, RV',status:'won',resp:39,created:d(-12),slot:null,notes:'',thread:[{who:'sys',t:ts(-11,9,0),msg:'Quote: 800 SF 4" fiber-mesh concrete pad — $7,800.'},{who:'cust',t:ts(-10,9,0),msg:'Deposit sent.'}]},
+    {id:'l8',name:'J. Boudreaux',phone:'(225) 555-0555',area:'Central',addr:'',src:'Referral',type:'pad',need:'Parking pad',status:'won',resp:0,created:d(-40),slot:null,notes:'Referred Hebert.',thread:[]},
+    {id:'l9',name:'T. Broussard',phone:'(225) 555-0808',area:'Prairieville',addr:'',src:'Missed call',type:'patio',need:'Travertine patio',status:'lost',resp:47,created:d(-20),slot:null,notes:'Re-engage March.',thread:[{who:'sys',t:ts(-19,9,0),msg:'Quote: 320 SF travertine — $9,600.'},{who:'cust',t:ts(-13,9,0),msg:'Going to hold off till spring.'}]},
   ];
   const jobs=[
-    {id:'j1',leadId:'l2',name:'R. Thibodeaux',type:'drain',scope:'96 LF · 24" · 4" SDR-35',value:4320,stage:0,hist:[iso(addD(TODAY,-2))],mats:[]},
-    {id:'j2',leadId:'l4',name:'A. Fontenot',type:'drain',scope:'110 LF · 24" + sod restore',value:5940,stage:0,hist:[iso(addD(TODAY,-5))],mats:[]},
-    {id:'j3',leadId:'l1',name:'K. Guidry',type:'drain',scope:'88 LF · 24" · 4" SDR-35',value:6200,stage:1,hist:[iso(addD(TODAY,-7)),iso(addD(TODAY,-6))],install:iso(addD(TODAY,6)),mats:[['Perforated pipe 4" SDR-35','90 LF','Ferguson','queued'],['#57 washed gravel','7.2 CY','Southern Aggregates','queued'],['Geotextile 4 oz','97 LF × 6 ft','Site One','queued'],['Catch basins 12"','2 ea','Site One','queued']]},
-    {id:'j4',leadId:'l7',name:'M. Hebert',type:'pad',scope:'20×40 · 4" fiber-mesh concrete',value:7800,stage:2,hist:[iso(addD(TODAY,-11)),iso(addD(TODAY,-10)),iso(addD(TODAY,-9))],install:iso(addD(TODAY,2)),mats:[['Ready-mix 3500 psi','10.9 CY','Baton Rouge Ready Mix','ordered'],['610 limestone base','12 T','Southern Aggregates','delivered'],['Forms + stakes','120 LF','Stine','delivered']]},
-    {id:'j5',leadId:null,name:'Central · Landry',type:'drain',scope:'96 LF drain + sod',value:5400,stage:3,hist:[iso(addD(TODAY,-14)),iso(addD(TODAY,-13)),iso(addD(TODAY,-12)),iso(addD(TODAY,-10))],install:iso(addD(TODAY,1)),mats:[['Perforated pipe 4" SDR-35','100 LF','Ferguson','delivered'],['#57 washed gravel','7.9 CY','Southern Aggregates','delivered'],['St. Augustine sod','54 pcs','Bayou Sod','delivered']]},
-    {id:'j6',leadId:'l6',name:'Dana R.',type:'drain',scope:'140 LF · 24" · 4" SDR-35',value:6900,stage:4,hist:[iso(addD(TODAY,-28)),iso(addD(TODAY,-27)),iso(addD(TODAY,-25)),iso(addD(TODAY,-20)),iso(addD(TODAY,-3))],install:iso(addD(TODAY,-6)),mats:[['Perforated pipe 4" SDR-35','140 LF','Ferguson','delivered'],['#57 washed gravel','11.4 CY','Southern Aggregates','delivered']],paid:iso(addD(TODAY,-3)),reviewed:true},
-    {id:'j7',leadId:'l8',name:'J. Boudreaux',type:'pad',scope:'Pad 18×36 · 4" concrete',value:6600,stage:4,hist:[iso(addD(TODAY,-38)),iso(addD(TODAY,-37)),iso(addD(TODAY,-35)),iso(addD(TODAY,-30)),iso(addD(TODAY,-22))],install:iso(addD(TODAY,-24)),mats:[],paid:iso(addD(TODAY,-22)),reviewed:true},
+    {id:'j1',leadId:'l2',name:'R. Thibodeaux',type:'drain',scope:'96 LF · 24" · 4" SDR-35',value:4320,cost:1180,hours:14,stage:0,hist:[d(-2)],mats:[]},
+    {id:'j2',leadId:'l4',name:'A. Fontenot',type:'drain',scope:'110 LF · 24" + sod restore',value:5940,cost:1710,hours:18,stage:0,hist:[d(-5)],mats:[]},
+    {id:'j3',leadId:'l1',name:'K. Guidry',type:'drain',scope:'88 LF · 24" · 4" SDR-35',value:6200,cost:1090,hours:13,stage:1,hist:[d(-7),d(-6)],install:d(6),mats:[['Perforated pipe 4" SDR-35','90 LF','Ferguson','queued'],['#57 washed gravel','7.2 CY','Southern Aggregates','queued'],['Geotextile 4 oz','97 LF × 6 ft','Site One','queued'],['Catch basins 12"','2 ea','Site One','queued']]},
+    {id:'j4',leadId:'l7',name:'M. Hebert',type:'pad',scope:'20×40 · 4" fiber-mesh concrete',value:7800,cost:2950,hours:16,stage:2,hist:[d(-11),d(-10),d(-9)],install:d(2),mats:[['Ready-mix 3500 psi','10.9 CY','BR Ready Mix','ordered'],['610 limestone base','12 T','Southern Aggregates','delivered'],['Forms + stakes','120 LF','Stine','delivered']]},
+    {id:'j5',leadId:null,name:'Central · Landry',type:'drain',scope:'96 LF drain + sod',value:5400,cost:1520,hours:16,stage:3,hist:[d(-14),d(-13),d(-12),d(-10)],install:d(1),mats:[['Perforated pipe 4" SDR-35','100 LF','Ferguson','delivered'],['#57 washed gravel','7.9 CY','Southern Aggregates','delivered'],['St. Augustine sod','54 pcs','Bayou Sod','delivered']]},
+    {id:'j6',leadId:'l6',name:'Dana R.',type:'drain',scope:'140 LF · 24" · 4" SDR-35',value:6900,cost:1780,hours:20,stage:4,hist:[d(-28),d(-27),d(-25),d(-20),d(-3)],install:d(-6),mats:[['Perforated pipe 4" SDR-35','140 LF','Ferguson','delivered'],['#57 washed gravel','11.4 CY','Southern Aggregates','delivered']],paid:d(-3),reviewed:true},
+    {id:'j7',leadId:'l8',name:'J. Boudreaux',type:'pad',scope:'Pad 18×36 · 4" concrete',value:6600,cost:2400,hours:14,stage:4,hist:[d(-38),d(-37),d(-35),d(-30),d(-22)],install:d(-24),mats:[],paid:d(-22),reviewed:true},
   ];
+  const payments=[{jobId:'j3',kind:'deposit',amount:1860,method:'card',t:d(-6)},{jobId:'j4',kind:'deposit',amount:2340,method:'card',t:d(-10)},{jobId:'j5',kind:'deposit',amount:1620,method:'card',t:d(-13)},{jobId:'j6',kind:'deposit',amount:2070,method:'card',t:d(-27)},{jobId:'j6',kind:'balance',amount:4830,method:'ach',t:d(-3)},{jobId:'j7',kind:'deposit',amount:1980,method:'card',t:d(-37)},{jobId:'j7',kind:'balance',amount:4620,method:'card',t:d(-22)}];
   const bookings=[
-    {date:T,time:'7:30',kind:'est',label:'Site visit · Prairieville · standing water'},
-    {date:T,time:'9:00–3:00',kind:'job',label:'Install · Zachary · 140 LF French drain',jobId:null},
-    {date:T,time:'4:00',kind:'est',label:'Estimate · Denham Springs · parking pad'},
-    {date:iso(addD(TODAY,1)),time:'7:30–4:00',kind:'job',label:'Install · Central · Landry · 96 LF + sod',jobId:'j5'},
-    {date:iso(addD(TODAY,2)),time:'7:30',kind:'est',label:'Estimate · Gonzales · patio'},
-    {date:iso(addD(TODAY,2)),time:'9:00–2:00',kind:'job',label:'Pour · Baker · Hebert pad 20×40',jobId:'j4'},
-    {date:iso(addD(TODAY,2)),time:'4:00',kind:'est',label:'Estimate · (225) 555-0142 · parking pad',leadId:'l3'},
-    {date:iso(addD(TODAY,2)),time:'5:30',kind:'held',label:'Held for post-rain leads'},
-    {date:iso(addD(TODAY,3)),time:'7:30',kind:'est',label:'Estimate · S. Nguyen · cedar fence',leadId:'l5'},
-    {date:iso(addD(TODAY,3)),time:'9:00–3:00',kind:'job',label:'Install · Denham · 120 LF'},
-    {date:iso(addD(TODAY,6)),time:'9:00–3:00',kind:'job',label:'Install · Guidry · 88 LF',jobId:'j3'},
-    {date:iso(addD(TODAY,8)),time:'9:00–3:00',kind:'job',label:'Install · Prairieville · 60 LF'},
-  ];
-  const reviews=[
-    {id:'r1',who:'Dana R. · Zachary',when:'2 days ago',stars:5,text:'Back yard used to be a pond. Charlie mapped the whole thing with a 3D tool and showed us exactly where the water would go. Dry after 2 storms.',reply:'Thank you Dana — that yard was a fun one. Call anytime.'},
-    {id:'r2',who:'Marcus T. · Prairieville',when:'1 week ago',stars:5,text:'Quote the same afternoon, deposit by text, done in a day. Wish every contractor ran like this.',reply:''},
-    {id:'r3',who:'J. Boudreaux · Central',when:'3 weeks ago',stars:5,text:'Engineer who actually digs. Parking pad drains perfectly.',reply:'Appreciate you, Mr. Boudreaux.'},
-    {id:'r4',who:'L. Hebert · Baker',when:'1 month ago',stars:4,text:'Great work on the drain. Took a day longer than planned because of rain, but they kept me posted the whole time.',reply:''},
-  ];
-  const feed=[
-    ['Pre-rain campaign','19 open quotes','"2.4\" coming Thursday — want it mapped before or after?" 4 replies so far.'],
-    ['Follow-up · day 5','A. Fontenot · Central','Sent before/after of Zachary job. Open quote $5,940.'],
-    ['Text-back','(225) 555-0142','Missed call at 10:14. Replied at 10:15. Lead says "parking pad". Booked Thu 4:00.'],
-    ['Quote sent','R. Thibodeaux · Gonzales','96 LF · 24" · 4" SDR-35 → $4,320. Sent 14 min after site visit.'],
-    ['Deposit received','K. Guidry · Denham Springs','$1,860 via text link. Install slot locked for Sep 21. Pipe + gravel order queued.'],
-    ['Review posted','Dana R. · Zachary','★★★★★ "Dry after 2 storms." Auto-thanked, added to portfolio.'],
-  ].map((a,i)=>({t:['9:00 AM','9:00 AM','10:15 AM','Sun 11:41','Wed 6:40 PM','Sun 8:12'][i],sys:a[0],who:a[1],msg:a[2]}));
-  return {
-    leads,jobs,bookings,reviews,feed,
-    campaigns:[{when:'Aug 28',kind:'Post-rain',sent:31,replied:7,booked:2,inches:1.9},{when:'Sep 14',kind:'Pre-rain',sent:19,replied:4,booked:1,inches:2.4}],
-    forecast:[0.1,0.3,2.4,0.8,0,0,0.2],
-    weekly:[6200,4800,7400,5900,9100,6600,8200,11300],
-    reviewsTotal:14,rating:4.9,
-    settings:{deposit:30,threshold:1.5,hours:'7:00 AM – 6:00 PM, Mon–Sat',notify:'(225) 241-3069',warranty:'1-year workmanship on all French drain installations',
-      auto:{textback:true,formreply:true,followup:true,rainpre:true,rainpost:true,po:true,reminder:true,invoice:true,review:true,check30:true,warranty11:true},
-      tpl:{textback:'Hey, this is Scag Scapes — sorry we missed you, Charlie\'s on a drain install. Are you dealing with standing water, a driveway/pad, fence, or patio? Reply with a word and I\'ll get you the next open estimate slot. Free, no pressure.',
-           formreply:'Thanks for reaching out to Scag Scapes. Charlie does 3D elevation mapping so the fix actually works. Next open estimate slots: {slots}. Reply with one, or book here: scagscapes.com/book',
-           d2:'Any questions on the quote? Happy to walk through the elevation map with you.',
-           d5:'Here\'s a yard we finished last week with the same problem as yours — dry after two storms. [photo]',
-           d12:'Heads up — install slots are filling before the wet season. Want me to hold one for you?',
-           rainpre:'Scag Scapes here — {inches}" of rain coming {day}. Want your yard mapped before or right after, while it\'s holding water?',
-           rainpost:'Morning — Scag Scapes here. BR got {inches}" overnight. If your yard is holding water right now, that\'s the best time to map it. Charlie has {slots} site-visit slots Thursday. Reply YES or book: scagscapes.com/book',
-           review:'Thank you for trusting us with your yard! If we did right by you, a Google review helps a small crew more than you know: g.page/scagscapes/review',
-           check30:'It\'s been 30 days — how\'s it draining? If anything looks off after a storm, text me a photo and I\'ll come look. — Charlie',
-           warranty11:'Your 1-year workmanship warranty is coming up. Want a free walk-through before it ends? And if a neighbor needs help, we\'ll take $200 off their drain for the referral.'}},
+    {date:T,time:'7:30',kind:'est',label:'Site visit · Prairieville · standing water'},{date:T,time:'9:00–3:00',kind:'job',label:'Install · Zachary · 140 LF French drain'},{date:T,time:'4:00',kind:'est',label:'Estimate · Denham Springs · parking pad'},
+    {date:d(1),time:'7:30–4:00',kind:'job',label:'Install · Central · Landry · 96 LF + sod',jobId:'j5'},{date:d(2),time:'7:30',kind:'est',label:'Estimate · Gonzales · patio'},{date:d(2),time:'9:00–2:00',kind:'job',label:'Pour · Baker · Hebert pad 20×40',jobId:'j4'},{date:d(2),time:'4:00',kind:'est',label:'Estimate · (225) 555-0142 · parking pad',leadId:'l3'},{date:d(2),time:'5:30',kind:'held',label:'Held for post-rain leads'},
+    {date:d(3),time:'7:30',kind:'est',label:'Estimate · S. Nguyen · cedar fence',leadId:'l5'},{date:d(3),time:'9:00–3:00',kind:'job',label:'Install · Denham · 120 LF'},{date:d(6),time:'9:00–3:00',kind:'job',label:'Install · Guidry · 88 LF',jobId:'j3'},{date:d(8),time:'9:00–3:00',kind:'job',label:'Install · Prairieville · 60 LF'}];
+  const reviews=[{id:'r1',jobId:'j6',who:'Dana R. · Zachary',t:ts(-2,8),stars:5,text:'Back yard used to be a pond. Charlie mapped the whole thing with a 3D tool and showed us exactly where the water would go. Dry after 2 storms.',reply:'Thank you Dana — that yard was a fun one. Call anytime.'},{id:'r2',who:'Marcus T. · Prairieville',t:ts(-7,8),stars:5,text:'Quote the same afternoon, deposit by text, done in a day. Wish every contractor ran like this.',reply:''},{id:'r3',jobId:'j7',who:'J. Boudreaux · Central',t:ts(-21,8),stars:5,text:'Engineer who actually digs. Parking pad drains perfectly.',reply:'Appreciate you, Mr. Boudreaux.'},{id:'r4',who:'L. Hebert · Baker',t:ts(-30,8),stars:4,text:'Great work on the drain. Took a day longer than planned because of rain, but they kept me posted the whole time.',reply:''}];
+  const feed=[['Pre-rain campaign','19 open quotes','"2.4\" coming Thursday — want it mapped before or after?" 4 replies so far.',ts(0,9,1)],['Follow-up · day 5','A. Fontenot · Central','Sent before/after of Zachary job. Open quote $5,940.',ts(0,9,0)],['Text-back','(225) 555-0142','Missed call at 10:14. Replied at 10:15. Lead says "parking pad". Booked Thu 4:00.',ts(0,10,15)],['Quote sent','R. Thibodeaux · Gonzales','96 LF · 24" · 4" SDR-35 → $4,320. Sent 14 min after site visit.',ts(-2,11,41)],['Deposit received','K. Guidry · Denham Springs','$1,860 via text link. Install slot locked. Pipe + gravel order queued.',ts(-6,18,40)],['Review posted','Dana R. · Zachary','★★★★★ "Dry after 2 storms." Auto-thanked, added to portfolio.',ts(-2,8,12)]].map(a=>({sys:a[0],who:a[1],msg:a[2],t:a[3]}));
+  const auto={};AUTOS.forEach(a=>auto[a[0]]=true);
+  return {leads,jobs,payments,bookings,reviews,feed,quotes:[],campaigns:[{t:ts(-18,8),kind:'post',sent:31,replied:7,booked:2,inches:1.9},{t:ts(-1,8),kind:'pre',sent:19,replied:4,booked:1,inches:2.4}],forecast:[0.1,0.3,2.4,0.8,0,0,0.2],weekly:[6200,4800,7400,5900,9100,6600,8200,11300],reviewsTotal:14,rating:4.9,
+    settings:{deposit:30,threshold:1.5,hours:'7:00 AM – 6:00 PM, Mon–Sat',notify:'(225) 241-3069',warranty:'1-year workmanship on all French drain installations',auto,tpl:{...TPLDEF}},
     ui:{sec:'overview',leadFilter:'all',weekOff:0,qtype:'drain',qlead:'',jobFilter:'all'},
-    q:{drain:{lf:120,depth:24,pipe:4,soil:1.12,basins:2,pop:1,sod:1},pad:{l:20,w:40,mat:'c4',tear:0},fence:{lf:180,style:'p6',gates:1,tear:1},patio:{sf:320,mat:'trav',edge:1,steps:0},sod:{sf:1800,var:'sa',prep:1,irr:0},porch:{sf:240,roof:1,door:1}}
-  };
+    q:{drain:{lf:120,depth:24,pipe:4,soil:1.12,basins:2,pop:1,sod:1},pad:{l:20,w:40,mat:'c4',tear:0},fence:{lf:180,style:'p6',gates:1,tear:1},patio:{sf:320,mat:'trav',edge:1,steps:0},sod:{sf:1800,var:'sa',prep:1,irr:0},porch:{sf:240,roof:1,door:1}}};
 }
-function load(){try{const s=localStorage.getItem(KEY);if(s)return JSON.parse(s)}catch(e){}return null}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-S=load()||seed();
-if(!S.ui||!S.q||!S.settings||!S.settings.tpl)S=seed();
+function loadLocal(){try{const s=localStorage.getItem(KEY);if(s)return JSON.parse(s)}catch(e){}return null}
+function saveLocal(){if(LIVE())return;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+let S=null; let LIVE_STATUS={ok:false,msg:'not connected',ms:0,counts:{}};
+let UIKEEP=null;
+
+/* ---------- live loader: DB rows -> app state ---------- */
+async function loadLive(){
+  const t0=performance.now();
+  const [tenant,leads,msgs,jobs,bookings,payments,reviews,camps,events,autos,fc,quotes]=await Promise.all([
+    rest('ss_tenants','select=id,name,settings'),rest('ss_leads','select=*&order=created_at.desc'),rest('ss_messages','select=*&order=created_at'),rest('ss_jobs','select=*&order=created_at.desc'),
+    rest('ss_bookings','select=*'),rest('ss_payments','select=*&order=created_at'),rest('ss_reviews','select=*&order=created_at.desc'),rest('ss_campaigns','select=*&order=created_at'),
+    rest('ss_events','select=*&order=created_at.desc&limit=60'),rest('ss_automations','select=*'),rest('ss_forecast','select=*&order=day_offset'),rest('ss_quotes','select=*&order=created_at.desc')]);
+  const st=(tenant[0]&&tenant[0].settings)||{};const base=S||seed();
+  const byLead={};msgs.forEach(m=>{(byLead[m.lead_id]=byLead[m.lead_id]||[]).push({id:m.id,who:m.who,t:m.created_at,msg:m.body})});
+  const auto={},tpl={...TPLDEF};autos.forEach(a=>{auto[a.key]=a.enabled;if(a.template)tpl[a.key]=a.template});
+  const won=leads.filter(l=>l.status==='won').length;
+  const weekly=[...base.weekly];
+  S={
+    leads:leads.map(l=>({id:l.id,name:l.name,phone:l.phone||'',area:l.area||'',addr:l.addr||'',src:l.source,type:l.service_type,need:l.need||'',status:l.status,resp:l.response_seconds||0,created:l.created_at.slice(0,10),slot:l.slot_date?{date:l.slot_date,time:l.slot_time}:null,notes:l.notes||'',thread:byLead[l.id]||[]})),
+    jobs:jobs.map(j=>({id:j.id,leadId:j.lead_id,quoteId:j.quote_id,name:j.name,type:j.service_type,scope:j.scope||'',value:+j.value,cost:+j.material_cost,hours:+j.labor_hours,stage:j.stage,hist:j.stage_history||[],install:j.install_date,mats:j.materials||[],paid:j.paid_at?j.paid_at.slice(0,10):null,reviewed:j.reviewed})),
+    payments:payments.map(p=>({id:p.id,jobId:p.job_id,kind:p.kind,amount:+p.amount,method:p.method,t:p.created_at.slice(0,10)})),
+    bookings:bookings.map(b=>({id:b.id,date:b.date,time:b.time,kind:b.kind,label:b.label,leadId:b.lead_id,jobId:b.job_id})),
+    reviews:reviews.map(r=>({id:r.id,jobId:r.job_id,who:r.who,t:r.created_at,stars:r.stars,text:r.body,reply:r.reply||''})),
+    feed:events.map(e=>({id:e.id,sys:e.kind,who:e.who||'',msg:e.body||'',t:e.created_at})),
+    quotes:quotes.map(q=>({id:q.id,leadId:q.lead_id,type:q.service_type,inputs:q.inputs,lines:q.lines,bom:q.bom,summary:q.summary,total:+q.total,cost:+q.material_cost,status:q.status,t:q.created_at})),
+    campaigns:camps.map(c=>({id:c.id,t:c.created_at,kind:c.kind,sent:c.sent,replied:c.replied,booked:c.booked,inches:+c.inches})),
+    forecast:fc.length===7?fc.map(r=>+r.inches):base.forecast, weekly, reviewsTotal:10+reviews.length, rating:reviews.length?Math.round(reviews.reduce((a,r)=>a+r.stars,0)/reviews.length*10)/10:5,
+    settings:{deposit:st.deposit_pct??30,threshold:st.rain_threshold_in??1.5,hours:st.hours||'',notify:st.notify||'',warranty:st.warranty||'',auto,tpl},
+    ui:UIKEEP||base.ui, q:base.q};
+  LIVE_STATUS={ok:true,msg:'connected',ms:Math.round(performance.now()-t0),counts:{leads:leads.length,messages:msgs.length,jobs:jobs.length,quotes:quotes.length,bookings:bookings.length,payments:payments.length,reviews:reviews.length,campaigns:camps.length,events:events.length}};
+}
+async function boot(){
+  if(LIVE()){try{await loadLive()}catch(e){LIVE_STATUS={ok:false,msg:e.message,ms:0,counts:{}};MODE='local';S=loadLocal()||seed()}}
+  else S=loadLocal()||seed();
+  if(!S.ui||!S.q||!S.settings||!S.settings.tpl)S=seed();
+}
+async function refresh(){UIKEEP=S.ui;if(LIVE()){try{await loadLive()}catch(e){toast('Live reload failed: '+e.message)}}renderAll()}
 
 /* ---------- helpers ---------- */
-let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2600)}
-function log(sys,who,msg){S.feed.unshift({t:nowT(),sys,who,msg});if(S.feed.length>60)S.feed.pop()}
+let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2800)}
+function log(sys,who,msg){S.feed.unshift({t:new Date().toISOString(),sys,who,msg});if(S.feed.length>60)S.feed.pop()}
 const lead=id=>S.leads.find(l=>l.id===id);
 const job=id=>S.jobs.find(j=>j.id===id);
 const statusPill=s=>({new:['New','new'],booked:['Estimate booked','new'],quoted:['Quoted','warn'],won:['Won','ok'],lost:['Lost','mute']})[s]||[s,'mute'];
 const openLeads=()=>S.leads.filter(l=>['new','booked'].includes(l.status));
 const dep=()=>S.settings.deposit/100;
+const margin=j=>j.value-(j.cost||j.value*(COST_RATIO[j.type]||.35))-(j.hours||Math.round(j.value/320))*LAB_RATE;
 function openSlots(n=6){const out=[];for(let i=0;i<14&&out.length<n;i++){const d=addD(TODAY,i);if(d.getDay()===0)continue;const ds=iso(d);['7:30','4:00','5:30'].forEach(t=>{if(out.length<n&&!S.bookings.some(b=>b.date===ds&&b.time===t))out.push({date:ds,time:t})})}return out}
 const slotStr=s=>dLabel(s.date)+' '+s.time;
-const tmin=t=>{const m=t.match(/^(\d+):(\d+)/);if(!m)return 0;let h=+m[1];if(h<7)h+=12;return h*60+ +m[2]};
-const byTime=(a,b)=>tmin(a.time)-tmin(b.time);
+const modeChip=()=>LIVE()?`<span class="pill ok" title="${esc(LIVE_STATUS.msg)} · ${LIVE_STATUS.ms} ms">● Live · Supabase</span>`:`<span class="pill mute">● Local demo</span>`;
 
 /* ---------- KPIs ---------- */
 function renderKpis(){
   const booked=S.jobs.filter(j=>j.stage>0).reduce((a,j)=>a+j.value,0);
-  const deps=S.jobs.filter(j=>j.stage>0&&j.stage<4).reduce((a,j)=>a+j.value*dep(),0)+S.jobs.filter(j=>j.stage===4).reduce((a,j)=>a+j.value,0);
+  const collected=S.payments.reduce((a,p)=>a+p.amount,0);
   const resp=S.leads.filter(l=>l.resp>0);const avg=resp.length?Math.round(resp.reduce((a,l)=>a+l.resp,0)/resp.length):0;
   const dec=S.leads.filter(l=>['won','lost'].includes(l.status));const close=dec.length?Math.round(S.leads.filter(l=>l.status==='won').length/dec.length*100):0;
   const q=S.jobs.length;
-  $('#kpis').innerHTML=[
-    ['Calls answered','100%','was ~45% before text-back','up'],
-    ['Speed to lead',avg+'s','target < 60s',avg<=60?'up':'dn'],
-    ['Quotes out < 24h',`${q} / ${q}`,'same-day from driveway','up'],
-    ['Close rate',close+'%','+19 pts vs. no follow-up','up'],
-    ['Booked, 30d',fmt(booked),'collected '+fmt(deps),''],
-    ['Google reviews',`${S.reviewsTotal} ★${S.rating}`,'from 0 in 90 days','up']
-  ].map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v ${k[0].includes('Booked')?'mono':''}">${k[1]}</div><div class="d ${k[3]}">${k[2]}</div></div>`).join('');
+  $('#kpis').innerHTML=[['Calls answered','100%','was ~45% before text-back','up'],['Speed to lead',avg+'s','competitors: none stated',avg<=60?'up':'dn'],['Quotes out < 24h',`${q} / ${q}`,'competitors: 3–5 days','up'],['Close rate',close+'%','+19 pts vs. no follow-up','up'],['Booked, 30d',fmt(booked),'collected '+fmt(collected),''],['Google reviews',`${S.reviewsTotal} ★${S.rating}`,'from 0 in 90 days','up']]
+   .map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v ${k[0].includes('Booked')?'mono':''}">${k[1]}</div><div class="d ${k[3]}">${k[2]}</div></div>`).join('');
   $$('[data-count="leads"]').forEach(e=>e.textContent=openLeads().length||'');
   $$('[data-count="jobs"]').forEach(e=>e.textContent=S.jobs.filter(j=>j.stage>0&&j.stage<4).length||'');
 }
 
-/* ---------- Overview ---------- */
-function chartSVG(){
-  const w=S.weekly,max=Math.max(...w)*1.15,W=520,H=150,pad=28,bw=(W-pad-10)/w.length;
-  const ticks=[0,.5,1].map(f=>Math.round(max*f/1000)*1000);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Booked revenue by week">
-  ${ticks.map(t=>{const y=H-16-(t/max)*(H-30);return `<line x1="${pad}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line2)"/><text x="${pad-4}" y="${y+3}" font-size="9" text-anchor="end" fill="var(--ink3)" font-family="IBM Plex Mono">${t/1000}k</text>`}).join('')}
-  ${w.map((v,i)=>{const h=(v/max)*(H-30),x=pad+i*bw+4,y=H-16-h,last=i===w.length-1;return `<rect x="${x}" y="${y}" width="${bw-8}" height="${h}" rx="2" fill="${last?'var(--water)':'var(--water-soft)'}" stroke="${last?'none':'var(--water)'}" stroke-opacity=".5"/><text x="${x+(bw-8)/2}" y="${H-4}" font-size="9" text-anchor="middle" fill="var(--ink3)" font-family="IBM Plex Mono">W${i+1}</text>${last?`<text x="${x+(bw-8)/2}" y="${y-4}" font-size="10" text-anchor="middle" fill="var(--ink)" font-weight="600" font-family="IBM Plex Mono">${fmt(v)}</text>`:''}`}).join('')}
-  </svg>`;
+/* ---------- charts ---------- */
+function barsSVG(series,labels,opts={}){
+  const max=Math.max(...series,1)*1.15,W=520,H=opts.h||150,pad=30,bw=(W-pad-10)/series.length;const ticks=[0,.5,1].map(f=>Math.round(max*f));
+  const fmtT=opts.money?(v=>v>=1000?Math.round(v/1000)+'k':v):(v=>v);
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label||'chart')}">${ticks.map(t=>{const y=H-16-(t/max)*(H-30);return `<line x1="${pad}" x2="${W}" y1="${y}" y2="${y}" stroke="var(--line2)"/><text x="${pad-4}" y="${y+3}" font-size="9" text-anchor="end" fill="var(--ink3)" font-family="IBM Plex Mono">${fmtT(t)}</text>`}).join('')}
+  ${series.map((v,i)=>{const h=(v/max)*(H-30),x=pad+i*bw+4,y=H-16-h,hi=opts.hi===i;return `<rect x="${x}" y="${y}" width="${bw-8}" height="${Math.max(0,h)}" rx="2" fill="${hi?'var(--water)':'var(--water-soft)'}" stroke="var(--water)" stroke-opacity="${hi?0:.5}"/><text x="${x+(bw-8)/2}" y="${H-4}" font-size="9" text-anchor="middle" fill="var(--ink3)" font-family="IBM Plex Mono">${esc(labels[i])}</text>${opts.vals?`<text x="${x+(bw-8)/2}" y="${y-4}" font-size="9.5" text-anchor="middle" fill="var(--ink)" font-weight="600" font-family="IBM Plex Mono">${opts.money?fmt(v):v}</text>`:''}`}).join('')}</svg>`;
 }
+function funnelSVG(steps){const W=520,H=40+steps.length*34,max=Math.max(...steps.map(s=>s[1]),1);
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Funnel">${steps.map((s,i)=>{const w=Math.max(40,(s[1]/max)*(W-200)),y=10+i*34;const conv=i?Math.round(s[1]/steps[i-1][1]*100):100;return `<text x="0" y="${y+17}" font-size="12" fill="var(--ink2)">${esc(s[0])}</text><rect x="150" y="${y}" width="${w}" height="24" rx="3" fill="${i===steps.length-1?'var(--water)':'var(--water-soft)'}" stroke="var(--water)" stroke-opacity=".5"/><text x="${150+w+8}" y="${y+17}" font-size="12" font-weight="600" fill="var(--ink)" font-family="IBM Plex Mono">${s[1]}</text><text x="${W-4}" y="${y+17}" font-size="11" text-anchor="end" fill="var(--ink3)" font-family="IBM Plex Mono">${i?conv+'%':''}</text>`}).join('')}</svg>`}
+
+/* ---------- Overview ---------- */
 function renderOverview(){
-  const today=S.bookings.filter(b=>b.date===iso(TODAY)).sort(byTime);
-  const opens=openSlots(1);
+  const today=S.bookings.filter(b=>b.date===iso(TODAY)).sort(byTime);const opens=openSlots(1);
   $('#s-overview').innerHTML=`
   <div class="grid g2">
-    <div class="panel"><header><h3>Live activity</h3><span class="hint">Everything the system did on Charlie's behalf</span></header>
-      <ul class="feed">${S.feed.map(f=>`<li><div class="t mono">${esc(f.t)}</div><div><div class="sys">${esc(f.sys)}</div><div class="who">${esc(f.who)}</div><div class="msg">${esc(f.msg)}</div></div></li>`).join('')}</ul></div>
+    <div class="panel"><header><h3>Live activity</h3><span class="hint">${LIVE()?'from ss_events · Supabase':'local demo'} — everything the system did on Charlie's behalf</span></header>
+      <ul class="feed">${S.feed.map(f=>`<li><div class="t mono">${esc(tShort(f.t))}</div><div><div class="sys">${esc(f.sys)}</div><div class="who">${esc(f.who)}</div><div class="msg">${esc(f.msg)}</div></div></li>`).join('')||'<li class="empty">No events yet.</li>'}</ul></div>
     <div class="grid" style="align-content:start">
-      <div class="panel"><header><h3>Try it</h3><span class="hint">Fire an event, watch the feed</span></header>
+      <div class="panel"><header><h3>Try it</h3><span class="hint">${LIVE()?'each button hits the real API':'fires local logic'}</span></header>
         <div class="body simbar"><button class="btn primary" data-act="sim.call">Simulate missed call</button><button class="btn" data-act="sim.form">Simulate web form</button><button class="btn" data-act="sim.rain">Simulate ${S.forecast[2]}&quot; rain</button><button class="btn" data-act="sim.pay">Simulate final payment</button></div></div>
       <div class="panel"><header><h3>Today · ${dLabel(iso(TODAY))}</h3><span class="hint">${today.length} on the board</span></header>
-        <div class="body">${today.map(b=>`<button class="slot ${b.kind}" data-act="slot.open" data-id="${b.date}|${b.time}"><span class="tm">${b.time}</span> &nbsp;${esc(b.label)}</button>`).join('')}${opens.length&&opens[0].date===iso(TODAY)?`<button class="slot open" data-act="slot.open" data-id="${opens[0].date}|${opens[0].time}"><span class="tm">${opens[0].time}</span> &nbsp;Open — offered to new leads automatically</button>`:''}</div></div>
-      <div class="panel"><header><h3>Booked revenue · 8 weeks</h3><span class="hint">this week in blue</span></header><div class="body">${chartSVG()}</div></div>
-      <div class="panel"><header><h3>Where the flow leaks</h3><span class="hint">Before → now</span></header>
+        <div class="body">${today.map(b=>`<button class="slot ${b.kind}" data-act="slot.open" data-id="${b.date}|${b.time}"><span class="tm">${b.time}</span> &nbsp;${esc(b.label)}</button>`).join('')||'<div class="empty">Nothing booked today.</div>'}${opens.length&&opens[0].date===iso(TODAY)?`<button class="slot open" data-act="slot.book" data-id="${opens[0].date}|${opens[0].time}"><span class="tm">${opens[0].time}</span> &nbsp;Open — offered to new leads automatically</button>`:''}</div></div>
+      <div class="panel"><header><h3>Booked revenue · 8 weeks</h3><span class="hint">this week in blue</span></header><div class="body">${barsSVG(S.weekly,S.weekly.map((_,i)=>'W'+(i+1)),{hi:S.weekly.length-1,money:true,vals:false})}</div></div>
+      <div class="panel"><header><h3>Where the flow leaks</h3><span class="hint">Before → now · <button class="btn sm ghost" data-act="nav" data-id="edge" style="padding:0 4px">see the competition ›</button></span></header>
         <div class="body"><table>
           <tr><td>Missed calls / wk<span class="sub">solo operator on a job</span></td><td class="mono" style="color:var(--crit)">11</td><td class="mono" style="color:var(--ok)">0</td></tr>
           <tr><td>Quote turnaround<span class="sub">site visit → PDF</span></td><td class="mono" style="color:var(--crit)">3–5 d</td><td class="mono" style="color:var(--ok)">same day</td></tr>
@@ -555,37 +647,32 @@ function renderLeads(){
     <div class="simbar"><button class="btn sm" data-act="lead.add">+ Add lead</button><span class="lab">simulate</span><button class="btn sm primary" data-act="sim.call">Missed call</button><button class="btn sm" data-act="sim.form">Web form</button></div></header>
     <div class="tbl-wrap"><table><thead><tr><th>Lead</th><th>Source</th><th>Need</th><th>Status</th><th>Response</th><th>Next</th></tr></thead><tbody>
     ${list.length?list.map(l=>{const p=statusPill(l.status);const nxt=l.status==='booked'&&l.slot?'Estimate '+slotStr(l.slot):l.status==='quoted'?'Follow-up cadence running':l.status==='new'?'Offer a slot':l.status==='won'?'In jobs':'Re-engage spring';
-      return `<tr class="click" data-act="lead.open" data-id="${l.id}"><td><b>${esc(l.name)}</b><span class="sub">${esc(l.area)}${l.addr?' · '+esc(l.addr):''}</span></td><td>${esc(l.src)}</td><td>${esc(l.need)}<span class="sub">${TYPES[l.type]}</span></td><td><span class="pill ${p[1]}">${p[0]}</span></td><td class="mono">${l.resp?l.resp+'s':'—'}</td><td style="color:var(--ink2)">${nxt}</td></tr>`}).join(''):'<tr><td colspan="6" class="empty">Nothing here.</td></tr>'}
+      return `<tr class="click" data-act="lead.open" data-id="${l.id}"><td><b>${esc(l.name)}</b><span class="sub">${esc(l.area)}${l.addr?' · '+esc(l.addr):''}</span></td><td>${esc(l.src)}</td><td>${esc(l.need)}<span class="sub">${TYPES[l.type]||''}</span></td><td><span class="pill ${p[1]}">${p[0]}</span></td><td class="mono">${l.resp?l.resp+'s':'—'}</td><td style="color:var(--ink2)">${nxt}</td></tr>`}).join(''):'<tr><td colspan="6" class="empty">Nothing here.</td></tr>'}
     </tbody></table></div></div>
   <div class="grid g2 gap-t">
     <div class="panel"><header><h3>Missed-call text-back</h3><span class="hint">Sent within 60 seconds, every time</span></header>
       <div class="body thread"><div class="sms">${esc(S.settings.tpl.textback)}</div><div class="sms cust">Standing water. Back yard floods every time it rains.</div><div class="sms">Got it. Charlie does <b>3D elevation mapping</b> so the drain actually flows. Next open site visits: <b>${openSlots(2).map(slotStr).join('</b> or <b>')}</b> — which works? Or book here: scagscapes.com/book</div></div></div>
     <div class="panel"><header><h3>Follow-up cadence</h3><span class="hint">Runs on every open quote · edit in Automations</span></header>
-      <div class="body"><div class="steps">
-        <div class="step done"><div class="l">Day 0</div><div class="v">Quote PDF + deposit link</div></div>
-        <div class="step done"><div class="l">Day 2</div><div class="v">${esc(S.settings.tpl.d2.slice(0,38))}…</div></div>
-        <div class="step now"><div class="l">Day 5</div><div class="v">Before/after of a similar yard</div></div>
-        <div class="step"><div class="l">Day 12</div><div class="v">Slots filling before wet season</div></div></div>
+      <div class="body"><div class="steps"><div class="step done"><div class="l">Day 0</div><div class="v">Quote PDF + deposit link</div></div><div class="step done"><div class="l">Day 2</div><div class="v">${esc(S.settings.tpl.d2.slice(0,38))}…</div></div><div class="step now"><div class="l">Day 5</div><div class="v">Before/after of a similar yard</div></div><div class="step"><div class="l">Day 12</div><div class="v">Slots filling before wet season</div></div></div>
       <p style="color:var(--ink2);font-size:13px;margin:12px 0 0">Charlie never writes these. He gets one push when someone replies, one when a deposit lands.</p></div></div>
   </div>`;
 }
 function leadDrawer(id){
-  const l=lead(id);if(!l)return;const p=statusPill(l.status);const js=S.jobs.filter(j=>j.leadId===id);
+  const l=lead(id);if(!l)return;const p=statusPill(l.status);const js=S.jobs.filter(j=>j.leadId===id);const qs=S.quotes.filter(q=>q.leadId===id);
   openDrawer(`<header><div><h3>${esc(l.name)}</h3><div class="sub">${esc(l.phone)} · ${esc(l.area)}${l.addr?' · '+esc(l.addr):''}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header>
   <div class="dbody">
-    <div class="row-actions"><span class="pill ${p[1]}">${p[0]}</span><span class="pill mute">${esc(l.src)}</span><span class="pill soil">${TYPES[l.type]}</span></div>
+    <div class="row-actions"><span class="pill ${p[1]}">${p[0]}</span><span class="pill mute">${esc(l.src)}</span><span class="pill soil">${TYPES[l.type]||esc(l.type)}</span>${l.resp?`<span class="pill mute mono">${l.resp}s</span>`:''}</div>
     <div class="row-actions">
       ${['new','booked'].includes(l.status)?`<button class="btn sm primary" data-act="lead.book" data-id="${l.id}">${l.slot?'Move estimate':'Book estimate'}</button>`:''}
       ${l.status!=='won'&&l.status!=='lost'?`<button class="btn sm" data-act="lead.quote" data-id="${l.id}">Build quote</button>`:''}
-      <button class="btn sm" data-act="lead.text" data-id="${l.id}">Text</button>
-      <button class="btn sm" data-act="lead.call" data-id="${l.id}">Call</button>
-      ${l.status!=='lost'&&l.status!=='won'?`<button class="btn sm danger" data-act="lead.lost" data-id="${l.id}">Mark lost</button>`:''}
-      ${l.status==='lost'?`<button class="btn sm" data-act="lead.reopen" data-id="${l.id}">Re-open</button>`:''}
+      <button class="btn sm" data-act="lead.text" data-id="${l.id}">Text</button><button class="btn sm" data-act="lead.call" data-id="${l.id}">Call</button>
+      ${l.status!=='lost'&&l.status!=='won'?`<button class="btn sm danger" data-act="lead.lost" data-id="${l.id}">Mark lost</button>`:''}${l.status==='lost'?`<button class="btn sm" data-act="lead.reopen" data-id="${l.id}">Re-open</button>`:''}
     </div>
-    <div><h4>Details</h4><dl class="kv"><dt>Need</dt><dd>${esc(l.need)}</dd><dt>Came in</dt><dd>${dLabel(l.created)}${l.resp?` · answered in <span class="mono">${l.resp}s</span>`:''}</dd>${l.slot?`<dt>Estimate</dt><dd>${slotStr(l.slot)}</dd>`:''}${js.length?`<dt>Jobs</dt><dd>${js.map(j=>`<button class="btn sm" data-act="job.open" data-id="${j.id}">${esc(j.scope)} · ${fmt(j.value)}</button>`).join(' ')}</dd>`:''}</dl></div>
+    <div><h4>Details</h4><dl class="kv"><dt>Need</dt><dd>${esc(l.need)}</dd><dt>Came in</dt><dd>${dLabel(l.created)}${l.resp?` · answered in <span class="mono">${l.resp}s</span>`:''}</dd>${l.slot?`<dt>Estimate</dt><dd>${slotStr(l.slot)}</dd>`:''}${js.length?`<dt>Jobs</dt><dd class="row-actions">${js.map(j=>`<button class="btn sm" data-act="job.open" data-id="${j.id}">${esc(j.scope)} · ${fmt(j.value)}</button>`).join('')}</dd>`:''}${qs.length?`<dt>Quotes</dt><dd>${qs.map(q=>`<div style="font-size:12.5px">${esc(q.summary)} · <span class="mono">${fmt(q.total)}</span> · <span class="pill mute">${q.status}</span></div>`).join('')}</dd>`:''}</dl></div>
     <div><h4>Notes</h4><textarea id="leadNotes" data-act="lead.notes" data-id="${l.id}" placeholder="Site notes, downspouts, soil, gate codes…">${esc(l.notes)}</textarea></div>
-    <div><h4>Conversation</h4><div class="thread">${l.thread.length?l.thread.map(m=>`<div class="sms ${m.who}">${esc(m.msg)}<span class="m">${m.who==='sys'?'auto':m.who==='charlie'?'Charlie':esc(l.name)} · ${esc(m.t)}</span></div>`).join(''):'<div class="empty">No messages yet.</div>'}</div>
-      <div class="row-actions" style="margin-top:10px"><button class="btn sm" data-act="lead.simreply" data-id="${l.id}">Simulate customer reply</button></div></div>
+    <div><h4>Conversation</h4><div class="thread">${l.thread.length?l.thread.map(m=>`<div class="sms ${m.who}">${esc(m.msg)}<span class="m">${m.who==='sys'?'auto':m.who==='charlie'?'Charlie':esc(l.name)} · ${esc(tShort(m.t))}</span></div>`).join(''):'<div class="empty">No messages yet.</div>'}</div>
+      <div class="row-actions" style="margin-top:10px"><input id="simReplyText" placeholder="Type what the customer texts back…" style="flex:1;min-width:160px"><button class="btn sm primary" data-act="lead.simreply" data-id="${l.id}">Send as customer</button></div>
+      <p style="font-size:12px;color:var(--ink3);margin:6px 0 0">${LIVE()?'Goes through POST /webhooks/sms — the intent engine books, prices, or answers.':'Local intent engine: try "yes", "how much", "my neighbor wants one".'}</p></div>
   </div>`);
 }
 
@@ -593,56 +680,39 @@ function leadDrawer(id){
 function weekDays(){const mon=addD(TODAY,-((TODAY.getDay()+6)%7)+S.ui.weekOff*7);return [0,1,2,3,4,5].map(i=>addD(mon,i))}
 function renderSchedule(){
   const days=weekDays();const T=iso(TODAY);
-  const est=S.bookings.filter(b=>b.kind==='est').length,held=S.bookings.filter(b=>b.kind==='held').length;
+  const est=S.bookings.filter(b=>b.kind==='est'&&b.date>=T).length,held=S.bookings.filter(b=>b.kind==='held'&&b.date>=T).length;
   const crew=S.bookings.filter(b=>b.kind==='job'&&days.some(d=>iso(d)===b.date)).length;
+  const lag=(()=>{const js=S.jobs.filter(j=>j.install&&j.hist[0]);if(!js.length)return 11;return Math.round(js.reduce((a,j)=>a+Math.max(0,(new Date(j.install)-new Date(j.hist[0]))/864e5),0)/js.length)})();
   $('#s-schedule').innerHTML=`
   <div class="panel"><header><div class="row-actions" style="align-items:center"><button class="btn sm" data-act="week.prev">‹</button><h3>${days[0].toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${days[5].toLocaleDateString('en-US',{month:'short',day:'numeric'})}</h3><button class="btn sm" data-act="week.next">›</button>${S.ui.weekOff?`<button class="btn sm ghost" data-act="week.today">Today</button>`:''}</div>
     <div class="legend"><span><i style="background:var(--water)"></i>Estimate</span><span><i style="background:var(--soil)"></i>Install</span><span><i style="background:var(--warn)"></i>Held</span><span><i style="background:var(--line)"></i>Open · self-book</span></div></header>
-    <div class="body"><div class="week" style="grid-template-columns:repeat(6,1fr)">${days.map((d,i)=>{const ds=iso(d);const bs=S.bookings.filter(b=>b.date===ds).sort(byTime);
-      const opens=['7:30','4:00','5:30'].filter(t=>!bs.some(b=>b.time===t));const rain=S.ui.weekOff===0?S.forecast[i]:0;
-      return `<div class="day ${ds===T?'today':''}"><h4>${DAYN[d.getDay()]}<span>${d.getDate()}</span></h4>${rain>=S.settings.threshold?`<div class="rain">☂ ${rain}" forecast</div>`:''}
-        ${bs.map(b=>`<button class="slot ${b.kind}" data-act="slot.open" data-id="${b.date}|${b.time}"><span class="tm">${b.time}</span> ${esc(b.label)}</button>`).join('')}
-        ${d.getDay()!==0?opens.map(t=>`<button class="slot open" data-act="slot.book" data-id="${ds}|${t}"><span class="tm">${t}</span> Open</button>`).join(''):''}</div>`}).join('')}</div></div></div>
+    <div class="body"><div class="week" style="grid-template-columns:repeat(6,1fr)">${days.map((d,i)=>{const ds=iso(d);const bs=S.bookings.filter(b=>b.date===ds).sort(byTime);const opens=['7:30','4:00','5:30'].filter(t=>!bs.some(b=>b.time===t));const off=Math.round((d-TODAY)/864e5);const rain=off>=0&&off<7?S.forecast[off]:0;
+      return `<div class="day ${ds===T?'today':''}"><h4>${DAYN[d.getDay()]}<span>${d.getDate()}</span></h4>${rain>=S.settings.threshold?`<div class="rain">☂ ${rain}" forecast</div>`:''}${bs.map(b=>`<button class="slot ${b.kind}" data-act="slot.open" data-id="${b.date}|${b.time}"><span class="tm">${b.time}</span> ${esc(b.label)}</button>`).join('')}${d.getDay()!==0&&ds>=T?opens.map(t=>`<button class="slot open" data-act="slot.book" data-id="${ds}|${t}"><span class="tm">${t}</span> Open</button>`).join(''):''}</div>`}).join('')}</div></div></div>
   <div class="grid g3 gap-t">
     <div class="panel"><div class="body"><div class="stat"><div class="l">Estimates booked</div><div class="v">${est}${held?` · ${held} held`:''}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Open slots are offered by text automatically. Tap any open slot to book it by hand.</p></div></div>
-    <div class="panel"><div class="body"><div class="stat"><div class="l">Quote → start lag</div><div class="v">11 days</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Watch this. Past 21 days it's time for a second crew, not more marketing.</p></div></div>
+    <div class="panel"><div class="body"><div class="stat"><div class="l">Quote → start lag</div><div class="v">${lag} days</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Watch this. Past 21 days it's time for a second crew, not more marketing.</p></div></div>
     <div class="panel"><div class="body"><div class="stat"><div class="l">Crew days this week</div><div class="v">${crew} / 6</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Install days block the 9:00–3:00 window; estimates fall at 7:30 and after 4:00.</p></div></div>
   </div>`;
 }
 function slotDrawer(key){
-  const [date,time]=key.split('|');const b=S.bookings.find(x=>x.date===date&&x.time===time);
-  if(!b){bookSheet(date,time);return}
+  const [date,time]=key.split('|');const b=S.bookings.find(x=>x.date===date&&x.time===time);if(!b){bookSheet(date,time);return}
   const l=b.leadId?lead(b.leadId):null,j=b.jobId?job(b.jobId):null;
   openDrawer(`<header><div><h3>${esc(b.label)}</h3><div class="sub">${dLabel(date)} · ${time}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header>
-  <div class="dbody">
-    <div class="row-actions"><span class="pill ${b.kind==='job'?'soil':b.kind==='held'?'warn':'new'}">${b.kind==='job'?'Install':b.kind==='held'?'Held slot':'Estimate'}</span></div>
-    ${l?`<div><h4>Lead</h4><button class="btn sm" data-act="lead.open" data-id="${l.id}">${esc(l.name)} · ${esc(l.phone)}</button></div>`:''}
-    ${j?`<div><h4>Job</h4><button class="btn sm" data-act="job.open" data-id="${j.id}">${esc(j.name)} · ${esc(j.scope)}</button></div>`:''}
-    <div><h4>Automations on this slot</h4><ul class="timeline">
-      <li class="done"><i></i><div>Confirmation text sent when booked</div></li>
-      <li class="${b.date===iso(TODAY)?'done':'now'}"><i></i><div>Reminder text, 6:00 PM the night before<div class="d">"See you at ${time} tomorrow — Charlie"</div></div></li>
-      <li><i></i><div>${b.kind==='job'?'Crew day: estimates blocked 9–3, customer gets "on the way" text':'On-the-way text when Charlie leaves the prior stop'}</div></li>
-      ${b.kind==='est'?'<li><i></i><div>Quote builder opens pre-filled from this lead</div></li>':''}</ul></div>
-    <div class="row-actions"><button class="btn sm" data-act="slot.text" data-id="${key}">Text "running 15 late"</button>${b.kind!=='job'?`<button class="btn sm danger" data-act="slot.cancel" data-id="${key}">Cancel slot</button>`:''}</div>
-  </div>`);
+  <div class="dbody"><div class="row-actions"><span class="pill ${b.kind==='job'?'soil':b.kind==='held'?'warn':'new'}">${b.kind==='job'?'Install':b.kind==='held'?'Held slot':'Estimate'}</span></div>
+    ${l?`<div><h4>Lead</h4><button class="btn sm" data-act="lead.open" data-id="${l.id}">${esc(l.name)} · ${esc(l.phone)}</button></div>`:''}${j?`<div><h4>Job</h4><button class="btn sm" data-act="job.open" data-id="${j.id}">${esc(j.name)} · ${esc(j.scope)}</button></div>`:''}
+    <div><h4>Automations on this slot</h4><ul class="timeline"><li class="done"><i></i><div>Confirmation text sent when booked</div></li><li class="${b.date===iso(TODAY)?'done':'now'}"><i></i><div>Reminder text, 6:00 PM the night before<div class="d">"${esc(S.settings.tpl.reminder.replace('{time}',time))}"</div></div></li><li><i></i><div>${b.kind==='job'?'Crew day: estimates blocked 9–3, customer gets "on the way" text':'On-the-way text when Charlie leaves the prior stop'}</div></li>${b.kind==='est'?'<li><i></i><div>Quote builder opens pre-filled from this lead</div></li>':''}</ul></div>
+    <div class="row-actions"><button class="btn sm" data-act="slot.text" data-id="${key}">Text "running 15 late"</button>${b.kind!=='job'?`<button class="btn sm danger" data-act="slot.cancel" data-id="${key}">Cancel slot</button>`:''}</div></div>`);
 }
 function bookSheet(date,time,leadId){
   const cands=S.leads.filter(l=>['new','booked','quoted'].includes(l.status));
   openSheet(`<header><h3>Book ${dLabel(date)} · ${time}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header>
-  <div class="sbody">
-    <div><label class="fl" for="bkLead">Who</label><select id="bkLead">${cands.map(l=>`<option value="${l.id}" ${l.id===leadId?'selected':''}>${esc(l.name)} · ${esc(l.need)}</option>`).join('')}<option value="__new" ${!cands.length?'selected':''}>New walk-in / phone lead…</option></select></div>
+  <div class="sbody"><div><label class="fl" for="bkLead">Who</label><select id="bkLead">${cands.map(l=>`<option value="${l.id}" ${l.id===leadId?'selected':''}>${esc(l.name)} · ${esc(l.need)}</option>`).join('')}<option value="__new" ${!cands.length?'selected':''}>New walk-in / phone lead…</option></select></div>
     <div><label class="fl" for="bkKind">Type</label><select id="bkKind"><option value="est">Estimate / site visit</option><option value="job">Install day (blocks 9–3)</option><option value="held">Hold for post-rain leads</option></select></div>
-    <div><label class="fl" for="bkNote">Label</label><input id="bkNote" placeholder="e.g. Estimate · Gonzales · patio"></div>
-  </div>
+    <div><label class="fl" for="bkNote">Label</label><input id="bkNote" placeholder="e.g. Estimate · Gonzales · patio"></div></div>
   <div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="slot.confirm" data-id="${date}|${time}">Book &amp; send confirmation</button></div>`);
 }
-function moveSheet(leadId){
-  const l=lead(leadId);const opts=openSlots(8);
-  openSheet(`<header><h3>${l.slot?'Move':'Book'} estimate · ${esc(l.name)}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header>
-  <div class="sbody"><div><label class="fl" for="mvSlot">Open slots</label><select id="mvSlot">${opts.map(s=>`<option value="${s.date}|${s.time}">${slotStr(s)}</option>`).join('')}</select></div>
-  <p style="font-size:13px;color:var(--ink2);margin:0">Customer gets a confirmation text immediately and a reminder the night before.</p></div>
-  <div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="lead.bookconfirm" data-id="${leadId}">Confirm</button></div>`);
-}
+function moveSheet(leadId){const l=lead(leadId);const opts=openSlots(8);
+  openSheet(`<header><h3>${l.slot?'Move':'Book'} estimate · ${esc(l.name)}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div><label class="fl" for="mvSlot">Open slots</label><select id="mvSlot">${opts.map(s=>`<option value="${s.date}|${s.time}">${slotStr(s)}</option>`).join('')}</select></div><p style="font-size:13px;color:var(--ink2);margin:0">Customer gets a confirmation text immediately and a reminder the night before.</p></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="lead.bookconfirm" data-id="${leadId}">Confirm</button></div>`)}
 
 /* ---------- Quote ---------- */
 const FIELDS={
@@ -651,302 +721,333 @@ const FIELDS={
   fence:[['lf','Fence length (LF)','num',{min:10,step:5}],['style','Style','sel',[['pk4','4\' cedar picket'],['p6','6\' cedar privacy'],['p8','8\' cedar privacy'],['sb6','6\' shadowbox']]],['gates','Gates','num',{min:0}],['tear','Tear-out old fence','sel',[[0,'None'],[1,'Remove & haul off']]]],
   patio:[['sf','Area (SF)','num',{min:50,step:10}],['mat','Material','sel',[['brick','Clay brick pavers'],['trav','Travertine'],['flag','Flagstone (irregular)'],['conc','Concrete pavers']]],['edge','Edging','sel',[[0,'None'],[1,'Paver soldier course']]],['steps','Steps','num',{min:0}]],
   sod:[['sf','Area (SF)','num',{min:100,step:50}],['var','Variety','sel',[['sa','St. Augustine (Palmetto)'],['zoy','Zoysia (Empire)'],['cen','Centipede']]],['prep','Prep','sel',[[0,'Lay over graded soil'],[1,'Kill, till, grade, topsoil']]],['irr','Irrigation check','sel',[[0,'No'],[1,'Adjust heads after install']]]],
-  porch:[['sf','Porch area (SF)','num',{min:60,step:10}],['roof','Roof','sel',[[0,'Under existing roof'],[1,'New shed roof, tie-in']]],['door','Screen doors','num',{min:0}]]
-};
-function calc(){
-  const t=S.ui.qtype,q=S.q[t],rows=[],bom=[];let total=0,summary='',per='';
-  const line=(l,v)=>{rows.push([l,v]);total+=v};
-  if(t==='drain'){const lf=+q.lf||0;let rate=(+q.depth===18?27:+q.depth===24?36:46)+(+q.pipe===6?7:0);rate=Math.min(60,Math.max(25,rate*+q.soil));
-    line(`Drain run · ${lf} LF × ${fmt(rate)}/LF`,lf*rate);line('Basins & emitters',(+q.basins)*185+(+q.pop)*65);if(+q.sod)line('Sod restoration',lf*1.5*4.25);
-    const cy=Math.ceil(lf*(+q.depth/12)/27*1.1*10)/10;bom.push([`Perforated pipe SDR-35 ${q.pipe}"`,Math.ceil(lf/10)*10+' LF','Ferguson'],['#57 washed gravel',cy+' CY','Southern Aggregates'],['Non-woven geotextile 4 oz',Math.ceil(lf*1.1)+' LF × 6 ft','Site One'],['Catch basins 12" w/ grate',q.basins+' ea','Site One'],['Pop-up emitters',q.pop+' ea','Site One'],['Couplers / fittings',Math.ceil(lf/20)+' ea','Ferguson']);if(+q.sod)bom.push(['St. Augustine sod',Math.ceil(lf*1.5/2.7)+' pcs','Bayou Sod']);
-    summary=`${lf} LF · ${q.depth}" · ${q.pipe}" SDR-35${+q.sod?' + sod':''}`;per=`${fmt(rate)}/LF · published range $25–$60`;}
-  if(t==='pad'){const sf=(+q.l)*(+q.w);const r={c4:8.5,c6:10.75,lime:3.25,grav:2.9}[q.mat];line(`${q.l}×${q.w} = ${sf} SF × ${fmt(r)}/SF`,sf*r);line('Grade + 610 base + forms',sf*1.1);if(+q.tear)line('Tear-out & haul',sf*1.6);
-    if(q.mat.startsWith('c')){const th=q.mat==='c4'?4:6;bom.push(['Ready-mix 3500 psi',(Math.ceil(sf*th/12/27*1.08*10)/10)+' CY','BR Ready Mix'],[q.mat==='c4'?'Fiber mesh + wire':'#4 rebar 18" OC',q.mat==='c4'?Math.ceil(sf/100)+' rolls':Math.ceil(sf*2/20)+' sticks','Stine'],['610 limestone base',Math.ceil(sf*4/12*1.5/27*1.4)+' T','Southern Aggregates'],['Forms + stakes',(2*(+q.l+ +q.w))+' LF','Stine'])}else bom.push([q.mat==='lime'?'610 limestone':'#57 gravel',Math.ceil(sf*4/12/27*1.4*10)/10+' T','Southern Aggregates'],['Geotextile fabric',Math.ceil(sf*1.1)+' SF','Site One']);
-    summary=`${q.l}×${q.w} ${({c4:'4" concrete',c6:'6" concrete',lime:'limestone',grav:'gravel'})[q.mat]} pad`;per=`${fmt(r)}/SF`;}
-  if(t==='fence'){const lf=+q.lf||0;const r={pk4:32,p6:46,p8:58,sb6:52}[q.style];line(`${lf} LF × ${fmt(r)}/LF`,lf*r);line(`Gates × ${q.gates}`,(+q.gates)*350);if(+q.tear)line('Tear-out & haul',lf*6);
-    const posts=Math.ceil(lf/8)+1;bom.push(['Cedar posts 4×4×'+(q.style==='p8'?'12':q.style==='pk4'?'8':'10')+"'",posts+' ea','Stine'],['Cedar pickets 5.5"',Math.ceil(lf*12/5.5*1.03)+' ea','Stine'],['2×4 cedar rails',Math.ceil(lf/8)*(q.style==='pk4'?2:3)+' ea','Stine'],['Concrete 80 lb',posts*2+' bags','Stine'],['Gate kits',q.gates+' ea','Stine']);
-    summary=`${lf} LF ${({pk4:"4' picket",p6:"6' privacy",p8:"8' privacy",sb6:"6' shadowbox"})[q.style]}`;per=`${fmt(r)}/LF`;}
-  if(t==='patio'){const sf=+q.sf||0;const r={brick:18,trav:26,flag:30,conc:16}[q.mat];line(`${sf} SF × ${fmt(r)}/SF`,sf*r);if(+q.edge)line('Soldier-course edging',Math.ceil(Math.sqrt(sf)*4)*9);line(`Steps × ${q.steps}`,(+q.steps)*425);
-    bom.push([({brick:'Clay pavers',trav:'Travertine 16×24',flag:'Flagstone',conc:'Concrete pavers'})[q.mat],Math.ceil(sf*1.08)+' SF','Bayou Stone'],['610 limestone base',Math.ceil(sf*4/12/27*1.4*10)/10+' T','Southern Aggregates'],['Bedding sand',Math.ceil(sf/12/27*10)/10+' CY','Southern Aggregates'],['Polymeric sand',Math.ceil(sf/60)+' bags','Site One']);
-    summary=`${sf} SF ${({brick:'brick',trav:'travertine',flag:'flagstone',conc:'paver'})[q.mat]} patio`;per=`${fmt(r)}/SF`;}
-  if(t==='sod'){const sf=+q.sf||0;const r={sa:.85,zoy:.98,cen:.8}[q.var];line(`${sf} SF × $${r.toFixed(2)}/SF`,sf*r);if(+q.prep)line('Kill, till, grade, topsoil',sf*.28);if(+q.irr)line('Irrigation adjust',185);
-    bom.push([({sa:'St. Augustine',zoy:'Empire Zoysia',cen:'Centipede'})[q.var]+' sod',Math.ceil(sf/450)+' pallets','Bayou Sod'],['Topsoil',+q.prep?Math.ceil(sf/12/27*.5*10)/10+' CY':'—','Southern Aggregates'],['Starter fertilizer',Math.ceil(sf/5000)+' bags','Site One']);
-    summary=`${sf} SF ${({sa:'St. Augustine',zoy:'Zoysia',cen:'Centipede'})[q.var]}`;per=`$${r.toFixed(2)}/SF`;}
-  if(t==='porch'){const sf=+q.sf||0;line(`${sf} SF screened × $95/SF`,sf*95);if(+q.roof)line('Shed roof & tie-in',2400+sf*8);line(`Screen doors × ${q.door}`,(+q.door)*385);
-    bom.push(['PT 4×4 posts',Math.ceil(Math.sqrt(sf)*4/8)+2+' ea','Stine'],['Cedar 2×4 framing',Math.ceil(sf*1.6)+' LF','Stine'],['Fiberglass screen 18/14',Math.ceil(Math.sqrt(sf)*4*8*1.1)+' SF','Stine'],['Screen doors',q.door+' ea','Stine']);if(+q.roof)bom.push(['Metal roofing panels',Math.ceil(sf*1.15)+' SF','Metal Mart']);
-    summary=`${sf} SF screened porch${+q.roof?' + roof':''}`;per='$95/SF';}
-  return {total,rows,bom,summary,per};
+  porch:[['sf','Porch area (SF)','num',{min:60,step:10}],['roof','Roof','sel',[[0,'Under existing roof'],[1,'New shed roof, tie-in']]],['door','Screen doors','num',{min:0}]]};
+function calc(t,q){t=t||S.ui.qtype;q=q||S.q[t];const rows=[],bom=[];let total=0,summary='',per='';const line=(l,v)=>{rows.push([l,v]);total+=v};
+  if(t==='drain'){const lf=+q.lf||0;let rate=(+q.depth===18?27:+q.depth===24?36:46)+(+q.pipe===6?7:0);rate=Math.min(60,Math.max(25,rate*+q.soil));line(`Drain run · ${lf} LF × ${fmt(rate)}/LF`,lf*rate);line('Basins & emitters',(+q.basins)*185+(+q.pop)*65);if(+q.sod)line('Sod restoration',lf*1.5*4.25);const cy=Math.ceil(lf*(+q.depth/12)/27*1.1*10)/10;bom.push([`Perforated pipe SDR-35 ${q.pipe}"`,Math.ceil(lf/10)*10+' LF','Ferguson'],['#57 washed gravel',cy+' CY','Southern Aggregates'],['Non-woven geotextile 4 oz',Math.ceil(lf*1.1)+' LF × 6 ft','Site One'],['Catch basins 12" w/ grate',q.basins+' ea','Site One'],['Pop-up emitters',q.pop+' ea','Site One'],['Couplers / fittings',Math.ceil(lf/20)+' ea','Ferguson']);if(+q.sod)bom.push(['St. Augustine sod',Math.ceil(lf*1.5/2.7)+' pcs','Bayou Sod']);summary=`${lf} LF · ${q.depth}" · ${q.pipe}" SDR-35${+q.sod?' + sod':''}`;per=`${fmt(rate)}/LF · published range $25–$60`}
+  if(t==='pad'){const sf=(+q.l)*(+q.w);const r={c4:8.5,c6:10.75,lime:3.25,grav:2.9}[q.mat];line(`${q.l}×${q.w} = ${sf} SF × ${fmt(r)}/SF`,sf*r);line('Grade + 610 base + forms',sf*1.1);if(+q.tear)line('Tear-out & haul',sf*1.6);if(q.mat.startsWith('c')){const th=q.mat==='c4'?4:6;bom.push(['Ready-mix 3500 psi',(Math.ceil(sf*th/12/27*1.08*10)/10)+' CY','BR Ready Mix'],[q.mat==='c4'?'Fiber mesh + wire':'#4 rebar 18" OC',q.mat==='c4'?Math.ceil(sf/100)+' rolls':Math.ceil(sf*2/20)+' sticks','Stine'],['610 limestone base',Math.ceil(sf*4/12*1.5/27*1.4)+' T','Southern Aggregates'],['Forms + stakes',(2*(+q.l+ +q.w))+' LF','Stine'])}else bom.push([q.mat==='lime'?'610 limestone':'#57 gravel',Math.ceil(sf*4/12/27*1.4*10)/10+' T','Southern Aggregates'],['Geotextile fabric',Math.ceil(sf*1.1)+' SF','Site One']);summary=`${q.l}×${q.w} ${({c4:'4" concrete',c6:'6" concrete',lime:'limestone',grav:'gravel'})[q.mat]} pad`;per=`${fmt(r)}/SF`}
+  if(t==='fence'){const lf=+q.lf||0;const r={pk4:32,p6:46,p8:58,sb6:52}[q.style];line(`${lf} LF × ${fmt(r)}/LF`,lf*r);line(`Gates × ${q.gates}`,(+q.gates)*350);if(+q.tear)line('Tear-out & haul',lf*6);const posts=Math.ceil(lf/8)+1;bom.push(['Cedar posts 4×4×'+(q.style==='p8'?'12':q.style==='pk4'?'8':'10')+"'",posts+' ea','Stine'],['Cedar pickets 5.5"',Math.ceil(lf*12/5.5*1.03)+' ea','Stine'],['2×4 cedar rails',Math.ceil(lf/8)*(q.style==='pk4'?2:3)+' ea','Stine'],['Concrete 80 lb',posts*2+' bags','Stine'],['Gate kits',q.gates+' ea','Stine']);summary=`${lf} LF ${({pk4:"4' picket",p6:"6' privacy",p8:"8' privacy",sb6:"6' shadowbox"})[q.style]}`;per=`${fmt(r)}/LF`}
+  if(t==='patio'){const sf=+q.sf||0;const r={brick:18,trav:26,flag:30,conc:16}[q.mat];line(`${sf} SF × ${fmt(r)}/SF`,sf*r);if(+q.edge)line('Soldier-course edging',Math.ceil(Math.sqrt(sf)*4)*9);line(`Steps × ${q.steps}`,(+q.steps)*425);bom.push([({brick:'Clay pavers',trav:'Travertine 16×24',flag:'Flagstone',conc:'Concrete pavers'})[q.mat],Math.ceil(sf*1.08)+' SF','Bayou Stone'],['610 limestone base',Math.ceil(sf*4/12/27*1.4*10)/10+' T','Southern Aggregates'],['Bedding sand',Math.ceil(sf/12/27*10)/10+' CY','Southern Aggregates'],['Polymeric sand',Math.ceil(sf/60)+' bags','Site One']);summary=`${sf} SF ${({brick:'brick',trav:'travertine',flag:'flagstone',conc:'paver'})[q.mat]} patio`;per=`${fmt(r)}/SF`}
+  if(t==='sod'){const sf=+q.sf||0;const r={sa:.85,zoy:.98,cen:.8}[q.var];line(`${sf} SF × $${r.toFixed(2)}/SF`,sf*r);if(+q.prep)line('Kill, till, grade, topsoil',sf*.28);if(+q.irr)line('Irrigation adjust',185);bom.push([({sa:'St. Augustine',zoy:'Empire Zoysia',cen:'Centipede'})[q.var]+' sod',Math.ceil(sf/450)+' pallets','Bayou Sod'],['Topsoil',+q.prep?Math.ceil(sf/12/27*.5*10)/10+' CY':'—','Southern Aggregates'],['Starter fertilizer',Math.ceil(sf/5000)+' bags','Site One']);summary=`${sf} SF ${({sa:'St. Augustine',zoy:'Zoysia',cen:'Centipede'})[q.var]}`;per=`$${r.toFixed(2)}/SF`}
+  if(t==='porch'){const sf=+q.sf||0;line(`${sf} SF screened × $95/SF`,sf*95);if(+q.roof)line('Shed roof & tie-in',2400+sf*8);line(`Screen doors × ${q.door}`,(+q.door)*385);bom.push(['PT 4×4 posts',Math.ceil(Math.sqrt(sf)*4/8)+2+' ea','Stine'],['Cedar 2×4 framing',Math.ceil(sf*1.6)+' LF','Stine'],['Fiberglass screen 18/14',Math.ceil(Math.sqrt(sf)*4*8*1.1)+' SF','Stine'],['Screen doors',q.door+' ea','Stine']);if(+q.roof)bom.push(['Metal roofing panels',Math.ceil(sf*1.15)+' SF','Metal Mart']);summary=`${sf} SF screened porch${+q.roof?' + roof':''}`;per='$95/SF'}
+  const cost=Math.round(total*(COST_RATIO[t]||.35)),hours=Math.round(total/320);return {total:Math.round(total),rows,bom,summary,per,cost,hours,margin:Math.round(total-cost-hours*LAB_RATE)};
 }
+function quoteOutHTML(r,l){return `<div class="fl">Total${l?' · '+esc(l.name):''}</div><div class="big mono">${fmt(r.total)}</div><div style="color:var(--ink3);font-size:12.5px;margin:2px 0 10px">${esc(r.summary)}</div>${r.rows.map(x=>`<div class="row"><span>${esc(x[0])}</span><span class="mono">${fmt(x[1])}</span></div>`).join('')}<div class="row"><span>Deposit due (${S.settings.deposit}%)</span><span class="mono" style="font-weight:600;color:var(--water)">${fmt(r.total*dep())}</span></div><div class="row"><span>Warranty</span><span>1-yr workmanship</span></div><div class="row" style="color:var(--ink3)"><span>Est. materials ${fmt(r.cost)} · labor ${r.hours} h</span><span class="mono" style="color:var(--ok)">margin ${fmt(r.margin)} · ${Math.round(r.margin/r.total*100)}%</span></div>`}
+function bomHTML(r){return `<tr><th>Item</th><th>Qty</th><th>Supplier</th></tr>${r.bom.map(x=>`<tr><td>${esc(x[0])}</td><td class="mono">${esc(x[1])}</td><td style="color:var(--ink3)">${esc(x[2])}</td></tr>`).join('')}`}
 function renderQuote(){
-  const t=S.ui.qtype,q=S.q[t],r=calc();const l=S.ui.qlead?lead(S.ui.qlead):null;
-  const cands=S.leads.filter(x=>x.status!=='lost'&&x.status!=='won');
+  const t=S.ui.qtype,q=S.q[t],r=calc();const l=S.ui.qlead?lead(S.ui.qlead):null;const cands=S.leads.filter(x=>x.status!=='lost'&&x.status!=='won');
   $('#s-quote').innerHTML=`
   <div class="grid g2">
-    <div class="panel"><header><h3>Build a quote</h3><span class="hint">From the driveway, before Charlie leaves</span></header>
-      <div class="body">
-        <div class="svc">${Object.entries(TYPES).map(([k,v])=>`<button data-act="quote.type" data-id="${k}" class="${k===t?'on':''}">${v}</button>`).join('')}</div>
-        <div class="form">
-          <div class="full"><label for="qLead">Customer</label><select id="qLead" data-act="quote.lead"><option value="">— pick a lead —</option>${cands.map(x=>`<option value="${x.id}" ${x.id===S.ui.qlead?'selected':''}>${esc(x.name)} · ${esc(x.area)} · ${esc(x.need)}</option>`).join('')}</select></div>
-          ${FIELDS[t].map(f=>`<div ${f[0]==='sod'&&t==='drain'?'class="full"':''}><label for="q_${f[0]}">${f[1]}</label>${f[2]==='num'?`<input id="q_${f[0]}" type="number" value="${q[f[0]]}" min="${f[3].min}" step="${f[3].step||1}" data-act="quote.field" data-id="${f[0]}">`:`<select id="q_${f[0]}" data-act="quote.field" data-id="${f[0]}">${f[3].map(o=>`<option value="${o[0]}" ${String(o[0])===String(q[f[0]])?'selected':''}>${o[1]}</option>`).join('')}</select>`}</div>`).join('')}
-        </div>
-        <div class="row-actions" style="margin-top:14px"><button class="btn primary" data-act="quote.send" ${l?'':'disabled'}>Send quote + deposit link</button><button class="btn" data-act="quote.pdf">Preview PDF</button>${l?'':'<span style="font-size:12.5px;color:var(--ink3);align-self:center">Pick a lead to send</span>'}</div>
-      </div></div>
+    <div class="panel"><header><h3>Build a quote</h3><span class="hint">From the driveway, before Charlie leaves · ${LIVE()?'priced by the API':'local engine'}</span></header>
+      <div class="body"><div class="svc">${Object.entries(TYPES).map(([k,v])=>`<button data-act="quote.type" data-id="${k}" class="${k===t?'on':''}">${v}</button>`).join('')}</div>
+        <div class="form"><div class="full"><label for="qLead">Customer</label><select id="qLead" data-act="quote.lead"><option value="">— pick a lead —</option>${cands.map(x=>`<option value="${x.id}" ${x.id===S.ui.qlead?'selected':''}>${esc(x.name)} · ${esc(x.area)} · ${esc(x.need)}</option>`).join('')}</select></div>
+          ${FIELDS[t].map(f=>`<div ${f[0]==='sod'&&t==='drain'?'class="full"':''}><label for="q_${f[0]}">${f[1]}</label>${f[2]==='num'?`<input id="q_${f[0]}" type="number" value="${q[f[0]]}" min="${f[3].min}" step="${f[3].step||1}" data-act="quote.field" data-id="${f[0]}">`:`<select id="q_${f[0]}" data-act="quote.field" data-id="${f[0]}">${f[3].map(o=>`<option value="${o[0]}" ${String(o[0])===String(q[f[0]])?'selected':''}>${o[1]}</option>`).join('')}</select>`}</div>`).join('')}</div>
+        <div class="row-actions" style="margin-top:14px"><button class="btn primary" data-act="quote.send" ${l?'':'disabled'}>Send quote + deposit link</button><button class="btn" data-act="quote.pdf">Preview PDF</button>${l?'':'<span style="font-size:12.5px;color:var(--ink3);align-self:center">Pick a lead to send</span>'}</div></div></div>
     <div class="grid" style="align-content:start">
-      <div class="panel"><header><h3>Price</h3><span class="hint">${esc(r.per)}</span></header>
-        <div class="body"><div class="quote-out"><div class="fl">Total${l?' · '+esc(l.name):''}</div><div class="big mono">${fmt(r.total)}</div><div style="color:var(--ink3);font-size:12.5px;margin:2px 0 10px">${esc(r.summary)}</div>
-          ${r.rows.map(x=>`<div class="row"><span>${esc(x[0])}</span><span class="mono">${fmt(x[1])}</span></div>`).join('')}
-          <div class="row"><span>Deposit due (${S.settings.deposit}%)</span><span class="mono" style="font-weight:600;color:var(--water)">${fmt(r.total*dep())}</span></div>
-          <div class="row"><span>Warranty</span><span>${t==='drain'?'1-yr workmanship':'1-yr workmanship'}</span></div></div></div></div>
-      <div class="panel"><header><h3>Bill of materials</h3><span class="hint">Auto-POs to suppliers on deposit</span></header>
-        <div class="body"><table class="bom"><tr><th>Item</th><th>Qty</th><th>Supplier</th></tr>${r.bom.map(x=>`<tr><td>${esc(x[0])}</td><td class="mono">${esc(x[1])}</td><td style="color:var(--ink3)">${esc(x[2])}</td></tr>`).join('')}</table></div></div>
-      <div class="panel"><header><h3>Recent quotes</h3></header><div class="tbl-wrap"><table>${S.jobs.slice(0,6).map(j=>`<tr class="click" data-act="job.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td><span class="pill ${j.stage===0?'warn':j.stage===4?'ok':'new'}">${STAGES[j.stage]}</span></td></tr>`).join('')}</table></div></div>
-    </div>
-  </div>`;
+      <div class="panel"><header><h3>Price</h3><span class="hint">${esc(r.per)}</span></header><div class="body"><div class="quote-out">${quoteOutHTML(r,l)}</div></div></div>
+      <div class="panel"><header><h3>Bill of materials</h3><span class="hint">Auto-POs to suppliers on deposit</span></header><div class="body"><table class="bom">${bomHTML(r)}</table></div></div>
+      <div class="panel"><header><h3>Recent quotes</h3></header><div class="tbl-wrap"><table>${S.jobs.slice(0,6).map(j=>`<tr class="click" data-act="job.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td><span class="pill ${j.stage===0?'warn':j.stage===4?'ok':'new'}">${STAGES[j.stage]}</span></td></tr>`).join('')||'<tr><td class="empty">None yet.</td></tr>'}</table></div></div>
+    </div></div>`;
 }
 
 /* ---------- Jobs ---------- */
 const AFTER=['Deposit link paid → supplier POs generated, install date offered by text.','POs sent to suppliers. Delivery matched to install day.','Crew day blocked, customer confirmation text, reminder 24h before.','Final invoice sent by text. Review ask fires in 24h. 30-day drain check scheduled.'];
 function renderJobs(){
   const f=S.ui.jobFilter;const js=S.jobs.filter(j=>f==='all'||j.type===f);
-  $('#s-jobs').innerHTML=`
-  <div class="panel"><header><div class="tabs"><button data-act="jobs.filter" data-id="all" class="${f==='all'?'on':''}">All</button>${Object.entries(TYPES).map(([k,v])=>S.jobs.some(j=>j.type===k)?`<button data-act="jobs.filter" data-id="${k}" class="${f===k?'on':''}">${v}</button>`:'').join('')}</div><span class="hint">Advance → triggers the next automation. Tap a card for detail.</span></header>
-    <div class="body"><div class="pipe">${STAGES.map((st,i)=>{const col=js.filter(j=>j.stage===i);return `<div class="col"><h4>${st}<span class="mono">${fmt(col.reduce((a,j)=>a+j.value,0))}</span></h4>${col.map(j=>`<div class="card ${j.type}" data-act="job.open" data-id="${j.id}" role="button" tabindex="0"><div class="nm">${esc(j.name)}</div><div class="mt"><span>${esc(j.scope)}</span><span class="mono">${fmt(j.value)}</span></div>${j.install&&i>0&&i<4?`<div class="mt"><span>Install ${dLabel(j.install)}</span></div>`:''}<div class="acts">${i>0&&i<4?`<button class="btn sm" data-act="job.back" data-id="${j.id}">‹</button>`:''}${i<4?`<button class="btn sm ${i===0?'':'primary'}" data-act="job.adv" data-id="${j.id}">${i===0?'Mark accepted':'Advance →'}</button>`:`<span class="pill ok" style="justify-content:center;flex:1">${j.reviewed?'Reviewed ★':'Paid'}</span>`}</div></div>`).join('')||'<div class="empty">—</div>'}</div>`}).join('')}</div></div></div>`;
+  $('#s-jobs').innerHTML=`<div class="panel"><header><div class="tabs"><button data-act="jobs.filter" data-id="all" class="${f==='all'?'on':''}">All</button>${Object.entries(TYPES).map(([k,v])=>S.jobs.some(j=>j.type===k)?`<button data-act="jobs.filter" data-id="${k}" class="${f===k?'on':''}">${v}</button>`:'').join('')}</div><span class="hint">Advance → triggers the next automation${LIVE()?' via POST /jobs/:id/advance':''}. Tap a card for detail.</span></header>
+    <div class="body"><div class="pipe">${STAGES.map((st,i)=>{const col=js.filter(j=>j.stage===i);return `<div class="col"><h4>${st}<span class="mono">${fmt(col.reduce((a,j)=>a+j.value,0))}</span></h4>${col.map(j=>`<div class="card ${j.type}" data-act="job.open" data-id="${j.id}" role="button" tabindex="0"><div class="nm">${esc(j.name)}</div><div class="mt"><span>${esc(j.scope)}</span><span class="mono">${fmt(j.value)}</span></div>${j.install&&i>0&&i<4?`<div class="mt"><span>Install ${dLabel(j.install)}</span><span class="mono" style="color:var(--ok)">${Math.round(margin(j)/j.value*100)}% mgn</span></div>`:''}<div class="acts">${i>0&&i<4?`<button class="btn sm" data-act="job.back" data-id="${j.id}">‹</button>`:''}${i<4?`<button class="btn sm ${i===0?'':'primary'}" data-act="job.adv" data-id="${j.id}">${i===0?'Mark accepted':'Advance →'}</button>`:`<span class="pill ok" style="justify-content:center;flex:1">${j.reviewed?'Reviewed ★':'Paid'}</span>`}</div></div>`).join('')||'<div class="empty">—</div>'}</div>`}).join('')}</div></div></div>`;
 }
 function jobDrawer(id){
-  const j=job(id);if(!j)return;const l=j.leadId?lead(j.leadId):null;const d=j.value*dep();
-  openDrawer(`<header><div><h3>${esc(j.name)}</h3><div class="sub">${esc(j.scope)} · ${TYPES[j.type]}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header>
-  <div class="dbody">
-    <div class="row-actions"><span class="pill ${j.stage===0?'warn':j.stage===4?'ok':'new'}">${STAGES[j.stage]}</span><span class="pill mute mono">${fmt(j.value)}</span>${l?`<button class="btn sm" data-act="lead.open" data-id="${l.id}">Lead ↗</button>`:''}</div>
+  const j=job(id);if(!j)return;const l=j.leadId?lead(j.leadId):null;const d=j.value*dep();const m=margin(j);const cost=j.cost||Math.round(j.value*(COST_RATIO[j.type]||.35)),hrs=j.hours||Math.round(j.value/320);const pays=S.payments.filter(p=>p.jobId===id);
+  openDrawer(`<header><div><h3>${esc(j.name)}</h3><div class="sub">${esc(j.scope)} · ${TYPES[j.type]||j.type}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header>
+  <div class="dbody"><div class="row-actions"><span class="pill ${j.stage===0?'warn':j.stage===4?'ok':'new'}">${STAGES[j.stage]}</span><span class="pill mute mono">${fmt(j.value)}</span>${l?`<button class="btn sm" data-act="lead.open" data-id="${l.id}">Lead ↗</button>`:''}</div>
     <div class="row-actions">${j.stage<4?`<button class="btn sm primary" data-act="job.adv" data-id="${j.id}">${j.stage===0?'Mark accepted':'Advance → '+STAGES[j.stage+1]}</button>`:''}${j.stage>0&&j.stage<4?`<button class="btn sm" data-act="job.back" data-id="${j.id}">Step back</button>`:''}<button class="btn sm" data-act="job.text" data-id="${j.id}">Text update</button>${j.stage>=1&&j.stage<4?`<button class="btn sm" data-act="job.sched" data-id="${j.id}">${j.install?'Move install':'Pick install day'}</button>`:''}</div>
-    <div><h4>Money</h4><dl class="kv"><dt>Total</dt><dd class="mono">${fmt(j.value)}</dd><dt>Deposit</dt><dd class="mono">${fmt(d)} · ${j.stage>=1?'<span style="color:var(--ok)">paid</span>':'<span style="color:var(--warn)">awaiting</span>'}</dd><dt>Balance</dt><dd class="mono">${fmt(j.value-d)} · ${j.stage===4?'<span style="color:var(--ok)">paid</span>':'due on completion'}</dd>${j.install?`<dt>Install</dt><dd>${dLabel(j.install)}</dd>`:''}</dl></div>
+    <div><h4>Profitability</h4><div class="stat-row"><div class="stat"><div class="l">Price</div><div class="v mono">${fmt(j.value)}</div></div><div class="stat"><div class="l">Materials</div><div class="v mono">${fmt(cost)}</div></div><div class="stat"><div class="l">Labor · ${hrs} h</div><div class="v mono">${fmt(hrs*LAB_RATE)}</div></div></div><div class="stat" style="margin-top:8px;border-left:3px solid var(--ok)"><div class="l">Gross margin</div><div class="v mono">${fmt(m)} · ${Math.round(m/j.value*100)}%</div></div><p style="font-size:12px;color:var(--ink3);margin:6px 0 0">Materials from the BOM at supplier list; labor at $${LAB_RATE}/h crew cost. Watch any drain job under 45%.</p></div>
+    <div><h4>Money</h4><dl class="kv"><dt>Deposit</dt><dd class="mono">${fmt(d)} · ${j.stage>=1?'<span style="color:var(--ok)">paid</span>':'<span style="color:var(--warn)">awaiting</span>'}</dd><dt>Balance</dt><dd class="mono">${fmt(j.value-d)} · ${j.stage===4?'<span style="color:var(--ok)">paid</span>':'due on completion'}</dd>${j.install?`<dt>Install</dt><dd>${dLabel(j.install)}</dd>`:''}${pays.length?`<dt>Ledger</dt><dd>${pays.map(p=>`<div style="font-size:12.5px"><span class="mono">${fmt(p.amount)}</span> ${p.kind} · ${p.method} · ${dLabel(p.t)}</div>`).join('')}</dd>`:''}</dl></div>
     <div><h4>Timeline</h4><ul class="timeline">${STAGES.map((s,i)=>`<li class="${i<j.stage?'done':i===j.stage?'now':''}"><i></i><div>${s}${j.hist[i]?`<div class="d">${dLabel(j.hist[i])}</div>`:i>j.stage?`<div class="d">${AFTER[i-1]||''}</div>`:''}</div></li>`).join('')}</ul></div>
-    <div><h4>Materials</h4>${j.mats.length?`<table class="bom"><tr><th>Item</th><th>Qty</th><th>Status</th></tr>${j.mats.map(m=>`<tr><td>${esc(m[0])}<span class="sub">${esc(m[2])}</span></td><td class="mono">${esc(m[1])}</td><td><span class="pill ${m[3]==='delivered'?'ok':m[3]==='ordered'?'warn':'mute'}">${m[3]}</span></td></tr>`).join('')}</table>`:'<div class="empty">BOM generates when the deposit is paid.</div>'}</div>
-  </div>`);
+    <div><h4>Materials</h4>${j.mats.length?`<table class="bom"><tr><th>Item</th><th>Qty</th><th>Status</th></tr>${j.mats.map(m=>`<tr><td>${esc(m[0])}<span class="sub">${esc(m[2])}</span></td><td class="mono">${esc(m[1])}</td><td><span class="pill ${m[3]==='delivered'?'ok':m[3]==='ordered'?'warn':'mute'}">${m[3]}</span></td></tr>`).join('')}</table>`:'<div class="empty">BOM generates when the deposit is paid.</div>'}</div></div>`);
 }
-function advance(id,dir){
-  const j=job(id);if(!j)return;const ns=j.stage+dir;if(ns<0||ns>4)return;j.stage=ns;
-  if(dir>0){j.hist[ns]=iso(TODAY);
-    if(ns===1){const r=calcFor(j);j.mats=r.map(x=>[x[0],x[1],x[2],'queued']);if(!j.install){const s=openInstall();j.install=s;S.bookings.push({date:s,time:'9:00–3:00',kind:'job',label:'Install · '+j.name+' · '+j.scope,jobId:j.id})}if(j.leadId){const l=lead(j.leadId);l.status='won';l.thread.push({who:'cust',t:nowT(),msg:'Paid the deposit.'},{who:'sys',t:nowT(),msg:`Got it — thank you! You're on the board for ${dLabel(j.install)}. Materials are ordered; you'll get a reminder the night before.`})}
-      S.weekly[S.weekly.length-1]+=j.value}
-    if(ns===2)j.mats.forEach(m=>m[3]='ordered');
-    if(ns===3)j.mats.forEach(m=>m[3]='delivered');
-    if(ns===4){j.paid=iso(TODAY);if(j.leadId)lead(j.leadId).thread.push({who:'sys',t:nowT(),msg:S.settings.tpl.review});setTimeout(()=>{addReview(j);renderAll()},1300)}
-    log(STAGES[ns],j.name+' · '+j.scope,AFTER[ns-1]);toast(`${j.name} → ${STAGES[ns]}`)}
-  else{log('Stepped back',j.name,'Moved to '+STAGES[ns]+'. No customer message sent.');toast(`${j.name} ← ${STAGES[ns]}`)}
-}
-function calcFor(j){const cur=S.ui.qtype;S.ui.qtype=j.type;const r=calc().bom;S.ui.qtype=cur;return r}
-function openInstall(){for(let i=2;i<30;i++){const d=addD(TODAY,i);if(d.getDay()===0)continue;const ds=iso(d);if(!S.bookings.some(b=>b.date===ds&&b.kind==='job'))return ds}return iso(addD(TODAY,30))}
-function addReview(j){S.reviewsTotal++;S.reviews.unshift({id:uid(),who:j.name+(j.leadId&&lead(j.leadId).area?' · '+lead(j.leadId).area:''),when:'just now',stars:5,text:pick(['Fast, clean, and the water actually goes where Charlie said it would.','Showed up when he said, finished when he said, yard drains. That\'s it, that\'s the review.','Only contractor who mapped the elevation before quoting. Worth it.']),reply:''});log('Review posted',j.name,'★★★★★ via the 24h review link. Auto-thanked. Added to site.');j.reviewed=true;save()}
 
 /* ---------- Rain ---------- */
 function audience(){return {quoted:S.leads.filter(l=>l.status==='quoted').length+15,never:openLeads().length+8,past:S.leads.filter(l=>l.status==='won').length+2}}
+function fill(t){const f=S.forecast,th=S.settings.threshold;const i=Math.max(0,f.findIndex(v=>v>=th));const held=S.bookings.filter(b=>b.kind==='held').length||2;return t.replace('{inches}',f[i]).replace('{day}',DAYN[addD(TODAY,i).getDay()]).replace('{slots}',held).replace('{time}','7:30')}
 function renderRain(){
-  const f=S.forecast,th=S.settings.threshold,a=audience(),days=weekDays();const hot=f.findIndex(v=>v>=th);const peak=Math.max(...f);
-  $('#s-rain').innerHTML=`
-  <div class="grid g21">
-    <div class="panel"><header><h3>Forecast · NWS Baton Rouge</h3><span class="hint">drag to test the rule</span></header>
-      <div class="body"><div class="gauge"><div class="l">${hot>=0?'Next trigger · '+DAYN[days[hot]?days[hot].getDay():4]:'No day over threshold'}</div><div class="big">${hot>=0?f[hot]+'"':peak+'"'}</div>
-        <div class="bars">${f.map(v=>`<i style="height:${Math.max(3,v/4*100)}%" class="${v>=th?'hot':''}"></i>`).join('')}</div>
-        <div class="bars-l">${[0,1,2,3,4,5,6].map(i=>`<span>${DAYN[addD(TODAY,i).getDay()]}</span>`).join('')}</div></div>
+  const f=S.forecast,th=S.settings.threshold,a=audience();const hot=f.findIndex(v=>v>=th);const peak=Math.max(...f);
+  $('#s-rain').innerHTML=`<div class="grid g21">
+    <div class="panel"><header><h3>Forecast · NWS Baton Rouge</h3><span class="hint">drag to test the rule${LIVE()?' · saved to ss_forecast':''}</span></header>
+      <div class="body"><div class="gauge"><div class="l">${hot>=0?'Next trigger · '+DAYN[addD(TODAY,hot).getDay()]:'No day over threshold'}</div><div class="big">${hot>=0?f[hot]+'"':peak+'"'}</div><div class="bars">${f.map(v=>`<i style="height:${Math.max(3,v/4*100)}%" class="${v>=th?'hot':''}"></i>`).join('')}</div><div class="bars-l">${[0,1,2,3,4,5,6].map(i=>`<span>${DAYN[addD(TODAY,i).getDay()]}</span>`).join('')}</div></div>
       <div class="sliders">${f.map((v,i)=>`<label>${DAYN[addD(TODAY,i).getDay()]}<input type="range" min="0" max="4" step="0.1" value="${v}" data-act="rain.set" data-id="${i}"><b>${v.toFixed(1)}"</b></label>`).join('')}</div>
-      <div class="form" style="margin-top:14px"><div><label for="rTh">Trigger threshold (in / 24h)</label><input id="rTh" type="number" step="0.1" min="0.5" max="4" value="${th}" data-act="rain.th"></div><div><label>Rule</label><div style="font-size:13px;color:var(--ink2);padding-top:6px">≥ ${th}" fires pre-rain to open quotes the day before, post-rain to everyone the morning after.</div></div></div>
+      <div class="form" style="margin-top:14px"><div><label for="rTh">Trigger threshold (in / 24h)</label><input id="rTh" type="number" step="0.1" min="0.5" max="4" value="${th}" data-act="rain.th"></div><div><label>Rule</label><div style="font-size:13px;color:var(--ink2);padding-top:6px">≥ ${th}" fires pre-rain to open quotes the day before, post-rain to everyone the morning after. BR averages 60.65"/yr.</div></div></div>
       <div class="row-actions" style="margin-top:14px"><button class="btn warn" data-act="rain.fire" data-id="post">Fire post-rain now</button><button class="btn" data-act="rain.fire" data-id="pre">Fire pre-rain now</button></div></div></div>
     <div class="grid" style="align-content:start">
-      <div class="panel"><header><h3>Post-rain message</h3><span class="hint">${a.quoted+a.never+a.past} contacts match</span></header>
-        <div class="body"><div class="sms">${esc(fill(S.settings.tpl.rainpost))}</div>
-        <div class="stat-row" style="margin-top:14px"><div class="stat"><div class="l">Open quotes</div><div class="v">${a.quoted}</div></div><div class="stat"><div class="l">Leads, never quoted</div><div class="v">${a.never}</div></div><div class="stat"><div class="l">Past customers</div><div class="v">${a.past}</div></div></div>
-        <p style="font-size:12.5px;color:var(--ink3);margin:10px 0 0">Past customers get a referral ask instead of a pitch. About $0.01 per text. Edit wording in Automations.</p></div></div>
-      <div class="panel"><header><h3>Campaign history</h3></header><div class="tbl-wrap"><table><thead><tr><th>When</th><th>Type</th><th>Rain</th><th>Sent</th><th>Replied</th><th>Booked</th></tr></thead><tbody>${S.campaigns.slice().reverse().map(c=>`<tr><td>${esc(c.when)}</td><td>${esc(c.kind)}</td><td class="mono">${c.inches}"</td><td class="mono">${c.sent}</td><td class="mono">${c.replied}</td><td class="mono">${c.booked}</td></tr>`).join('')}</tbody></table></div></div>
-    </div>
-  </div>`;
-}
-function fill(t){const f=S.forecast,th=S.settings.threshold;const i=Math.max(0,f.findIndex(v=>v>=th));const held=S.bookings.filter(b=>b.kind==='held').length||2;return t.replace('{inches}',f[i]).replace('{day}',DAYN[addD(TODAY,i).getDay()]).replace('{slots}',held).replace('{slots}',openSlots(2).map(slotStr).join(' or '))}
-function fireRain(kind){
-  const a=audience();const sent=kind==='post'?a.quoted+a.never+a.past:a.quoted;const replied=rnd(Math.round(sent*.15),Math.round(sent*.3));const held=S.bookings.filter(b=>b.kind==='held');const booked=Math.min(held.length||2,Math.ceil(replied/3));
-  held.slice(0,booked).forEach(b=>{b.kind='est';b.label='Site visit · post-rain lead'});
-  for(let i=held.length;i<booked;i++){const s=openSlots(1)[0];if(s)S.bookings.push({date:s.date,time:s.time,kind:'est',label:'Site visit · post-rain lead'})}
-  const inches=Math.max(...S.forecast);S.campaigns.push({when:'Today',kind:kind==='post'?'Post-rain':'Pre-rain',sent,replied,booked,inches});
-  for(let i=0;i<Math.min(2,booked);i++)S.leads.unshift({id:uid(),name:pick(['P. Dupuis','N. Alvarez','J. Melancon','C. Richard']),phone:'(225) 555-0'+rnd(100,999),area:pick(['Zachary','Central','Prairieville','Gonzales']),addr:'',src:'Rain campaign',type:'drain',need:'Yard holding water after '+inches+'"',status:'booked',resp:0,created:iso(TODAY),slot:null,thread:[{who:'sys',t:nowT(),msg:fill(S.settings.tpl.rainpost)},{who:'cust',t:nowT(),msg:'YES. Whole back yard is underwater.'}],notes:''});
-  log(kind==='post'?'Post-rain campaign':'Pre-rain campaign',sent+' contacts',`${inches}" event. ${replied} replies, ${booked} site visits booked. ${kind==='post'?'Waitlist started for Friday.':''}`);toast(`${replied} replies · ${booked} booked`);
+      <div class="panel"><header><h3>Post-rain message</h3><span class="hint">${a.quoted+a.never+a.past} contacts match</span></header><div class="body"><div class="sms">${esc(fill(S.settings.tpl.rainpost))}</div><div class="stat-row" style="margin-top:14px"><div class="stat"><div class="l">Open quotes</div><div class="v">${a.quoted}</div></div><div class="stat"><div class="l">Leads, never quoted</div><div class="v">${a.never}</div></div><div class="stat"><div class="l">Past customers</div><div class="v">${a.past}</div></div></div><p style="font-size:12.5px;color:var(--ink3);margin:10px 0 0">Past customers get a referral ask instead of a pitch. About $0.01 per text. Nobody else in the parish does this (see Edge).</p></div></div>
+      <div class="panel"><header><h3>Campaign history</h3></header><div class="tbl-wrap"><table><thead><tr><th>When</th><th>Type</th><th>Rain</th><th>Sent</th><th>Replied</th><th>Booked</th><th>Reply rate</th></tr></thead><tbody>${S.campaigns.slice().reverse().map(c=>`<tr><td>${esc(tAgo(c.t))}</td><td>${c.kind==='post'?'Post-rain':c.kind==='pre'?'Pre-rain':'Manual'}</td><td class="mono">${c.inches}"</td><td class="mono">${c.sent}</td><td class="mono">${c.replied}</td><td class="mono">${c.booked}</td><td class="mono">${c.sent?Math.round(c.replied/c.sent*100):0}%</td></tr>`).join('')||'<tr><td colspan="7" class="empty">No campaigns yet.</td></tr>'}</tbody></table></div></div>
+    </div></div>`;
 }
 
 /* ---------- Billing ---------- */
 function renderBilling(){
   const inv=S.jobs.filter(j=>j.stage>0);const out=inv.filter(j=>j.stage<4).reduce((a,j)=>a+j.value*(1-dep()),0);
-  $('#s-billing').innerHTML=`
-  <div class="grid g2">
+  $('#s-billing').innerHTML=`<div class="grid g2">
     <div class="grid" style="align-content:start">
       <div class="panel"><header><h3>Invoices</h3><span class="hint">Deposit ${S.settings.deposit}% on accept · balance on completion · outstanding ${fmt(out)}</span></header>
-        <div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Total</th><th>Deposit</th><th>Balance</th><th>Status</th></tr></thead><tbody>
-        ${inv.length?inv.map(j=>{const d=j.value*dep();const st=j.stage===4?['Paid in full','ok']:['Deposit paid','warn'];return `<tr class="click" data-act="inv.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td class="mono">${fmt(d)}</td><td class="mono">${j.stage===4?'$0':fmt(j.value-d)}</td><td><span class="pill ${st[1]}">${st[0]}</span></td></tr>`}).join(''):'<tr><td colspan="5" class="empty">No accepted jobs yet.</td></tr>'}
-        </tbody></table></div></div>
+        <div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Total</th><th>Deposit</th><th>Balance</th><th>Status</th></tr></thead><tbody>${inv.length?inv.map(j=>{const d=j.value*dep();const st=j.stage===4?['Paid in full','ok']:['Deposit paid','warn'];return `<tr class="click" data-act="inv.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td class="mono">${fmt(d)}</td><td class="mono">${j.stage===4?'$0':fmt(j.value-d)}</td><td><span class="pill ${st[1]}">${st[0]}</span></td></tr>`}).join(''):'<tr><td colspan="5" class="empty">No accepted jobs yet.</td></tr>'}</tbody></table></div></div>
       <div class="panel"><header><h3>Awaiting deposit</h3><span class="hint">quotes out, follow-ups running</span></header><div class="tbl-wrap"><table>${S.jobs.filter(j=>j.stage===0).map(j=>`<tr class="click" data-act="job.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td class="mono" style="color:var(--water)">${fmt(j.value*dep())} due</td><td><button class="btn sm" data-act="inv.nudge" data-id="${j.id}">Nudge</button></td></tr>`).join('')||'<tr><td class="empty">None.</td></tr>'}</table></div></div>
+      <div class="panel"><header><h3>Payment ledger</h3><span class="hint">${S.payments.length} payments · ${fmt(S.payments.reduce((a,p)=>a+p.amount,0))}</span></header><div class="tbl-wrap"><table>${S.payments.slice().reverse().slice(0,8).map(p=>{const j=job(p.jobId);return `<tr class="click" data-act="inv.open" data-id="${p.jobId}"><td>${dLabel(p.t)}</td><td><b>${esc(j?j.name:'—')}</b></td><td>${p.kind} · ${p.method}</td><td class="mono">${fmt(p.amount)}</td></tr>`}).join('')||'<tr><td class="empty">None.</td></tr>'}</table></div></div>
     </div>
     <div class="grid" style="align-content:start">
-      <div class="panel"><header><h3>Google reviews</h3><span class="hint">${S.reviewsTotal} reviews · ★${S.rating}</span></header>
-        <div class="body">${S.reviews.map(r=>`<div class="review"><div class="who">${esc(r.who)} <span>${esc(r.when)}</span></div><div class="stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</div>${esc(r.text)}${r.reply?`<div class="reply"><b>Charlie:</b> ${esc(r.reply)}</div>`:`<div class="row-actions" style="margin-top:6px"><button class="btn sm" data-act="review.reply" data-id="${r.id}">Reply</button><button class="btn sm ghost" data-act="review.auto" data-id="${r.id}">Auto-draft reply</button></div>`}</div>`).join('')}</div></div>
-      <div class="panel"><header><h3>After every job</h3></header><div class="body"><div class="steps">
-        <div class="step done"><div class="l">+0 h</div><div class="v">Final invoice · pay by text</div></div>
-        <div class="step done"><div class="l">+24 h</div><div class="v">Review ask w/ direct link</div></div>
-        <div class="step"><div class="l">+30 d</div><div class="v">"How's it draining?" check-in</div></div>
-        <div class="step"><div class="l">+11 mo</div><div class="v">Warranty walk + referral offer</div></div></div></div></div>
-    </div>
-  </div>`;
+      <div class="panel"><header><h3>Google reviews</h3><span class="hint">${S.reviewsTotal} reviews · ★${S.rating}</span></header><div class="body">${S.reviews.map(r=>`<div class="review"><div class="who">${esc(r.who)} <span>${esc(tAgo(r.t))}</span></div><div class="stars">${'★'.repeat(r.stars)}${'☆'.repeat(5-r.stars)}</div>${esc(r.text)}${r.reply?`<div class="reply"><b>Charlie:</b> ${esc(r.reply)}</div>`:`<div class="row-actions" style="margin-top:6px"><button class="btn sm" data-act="review.reply" data-id="${r.id}">Reply</button><button class="btn sm ghost" data-act="review.auto" data-id="${r.id}">Auto-draft reply</button></div>`}</div>`).join('')}</div></div>
+      <div class="panel"><header><h3>After every job</h3></header><div class="body"><div class="steps"><div class="step done"><div class="l">+0 h</div><div class="v">Final invoice · pay by text</div></div><div class="step done"><div class="l">+24 h</div><div class="v">Review ask w/ direct link</div></div><div class="step"><div class="l">+30 d</div><div class="v">"How's it draining?" check-in</div></div><div class="step"><div class="l">+11 mo</div><div class="v">Warranty walk + referral offer</div></div></div></div></div>
+    </div></div>`;
 }
 function invDrawer(id){
-  const j=job(id);if(!j)return;const d=j.value*dep();
+  const j=job(id);if(!j)return;const d=j.value*dep();const pays=S.payments.filter(p=>p.jobId===id);
   openDrawer(`<header><div><h3>Invoice · ${esc(j.name)}</h3><div class="sub">${esc(j.scope)}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header>
-  <div class="dbody">
-    <div class="quote-out"><div class="fl">Balance due</div><div class="big mono">${j.stage===4?'$0':fmt(j.value-d)}</div>
-      <div class="row"><span>${esc(j.scope)}</span><span class="mono">${fmt(j.value)}</span></div>
-      <div class="row"><span>Deposit (${S.settings.deposit}%) · ${j.hist[1]?dLabel(j.hist[1]):''}</span><span class="mono" style="color:var(--ok)">− ${fmt(d)}</span></div>
-      ${j.stage===4?`<div class="row"><span>Balance · ${dLabel(j.paid)}</span><span class="mono" style="color:var(--ok)">− ${fmt(j.value-d)}</span></div>`:''}
-      <div class="row"><span>Warranty</span><span>1-yr workmanship</span></div></div>
+  <div class="dbody"><div class="quote-out"><div class="fl">Balance due</div><div class="big mono">${j.stage===4?'$0':fmt(j.value-d)}</div><div class="row"><span>${esc(j.scope)}</span><span class="mono">${fmt(j.value)}</span></div><div class="row"><span>Deposit (${S.settings.deposit}%) · ${j.hist[1]?dLabel(j.hist[1]):''}</span><span class="mono" style="color:var(--ok)">− ${fmt(d)}</span></div>${j.stage===4?`<div class="row"><span>Balance · ${j.paid?dLabel(j.paid):''}</span><span class="mono" style="color:var(--ok)">− ${fmt(j.value-d)}</span></div>`:''}<div class="row"><span>Warranty</span><span>1-yr workmanship</span></div></div>
     <div class="row-actions">${j.stage===3?`<button class="btn primary" data-act="inv.pay" data-id="${j.id}">Mark balance paid</button><button class="btn" data-act="inv.remind" data-id="${j.id}">Send pay link</button>`:j.stage<3?`<span style="font-size:13px;color:var(--ink2)">Balance is requested automatically when the job is marked complete.</span>`:`<span class="pill ok">Paid in full</span><button class="btn sm" data-act="inv.receipt" data-id="${j.id}">Resend receipt</button>`}</div>
-    <div><h4>Payment log</h4><ul class="timeline">
-      <li class="done"><i></i><div>Deposit ${fmt(d)} · text link · card<div class="d">${j.hist[1]?dLabel(j.hist[1]):'—'}</div></div></li>
-      <li class="${j.stage===4?'done':j.stage===3?'now':''}"><i></i><div>Balance ${fmt(j.value-d)} · ${j.stage===4?'text link · ACH':'requested on completion'}<div class="d">${j.paid?dLabel(j.paid):'—'}</div></div></li>
-      <li class="${j.reviewed?'done':''}"><i></i><div>Review ask +24h<div class="d">${j.reviewed?'★★★★★ posted':'—'}</div></div></li></ul></div>
-    <button class="btn sm" data-act="job.open" data-id="${j.id}">Open job ↗</button>
-  </div>`);
+    <div><h4>Payment log</h4><ul class="timeline">${pays.map(p=>`<li class="done"><i></i><div>${p.kind==='deposit'?'Deposit':'Balance'} ${fmt(p.amount)} · ${p.method}<div class="d">${dLabel(p.t)}</div></div></li>`).join('')}${j.stage<4?`<li class="${j.stage===3?'now':''}"><i></i><div>Balance ${fmt(j.value-d)} · requested on completion</div></li>`:''}<li class="${j.reviewed?'done':''}"><i></i><div>Review ask +24h<div class="d">${j.reviewed?'★★★★★ posted':'—'}</div></div></li></ul></div>
+    <button class="btn sm" data-act="job.open" data-id="${j.id}">Open job ↗</button></div>`);
 }
 
 /* ---------- Customers ---------- */
 function renderCustomers(){
   const cs=S.leads.filter(l=>l.status==='won').map(l=>{const js=S.jobs.filter(j=>j.leadId===l.id);const ltv=js.reduce((a,j)=>a+(j.stage>0?j.value:0),0);const last=js.map(j=>j.install).filter(Boolean).sort().pop();return {l,js,ltv,last}});
+  const nd=s=>iso(addD(new Date(s+'T12:00'),0));
   $('#s-customers').innerHTML=`<div class="panel"><header><h3>Customers</h3><span class="hint">${cs.length} won · LTV ${fmt(cs.reduce((a,c)=>a+c.ltv,0))}</span></header>
-    <div class="tbl-wrap"><table><thead><tr><th>Customer</th><th>Jobs</th><th>Lifetime</th><th>Last install</th><th>Warranty until</th><th>Next touch</th></tr></thead><tbody>
-    ${cs.map(c=>`<tr class="click" data-act="lead.open" data-id="${c.l.id}"><td><b>${esc(c.l.name)}</b><span class="sub">${esc(c.l.area)} · ${esc(c.l.phone)}</span></td><td>${c.js.map(j=>TYPES[j.type]).join(', ')||'—'}</td><td class="mono">${fmt(c.ltv)}</td><td>${c.last?dLabel(c.last):'—'}</td><td>${c.last?dLabel(iso(addD(new Date(c.last+'T12:00'),365))):'—'}</td><td style="color:var(--ink2)">${c.last?(addD(new Date(c.last+'T12:00'),30)>TODAY?'30-day check · '+dLabel(iso(addD(new Date(c.last+'T12:00'),30))):'Warranty walk · '+dLabel(iso(addD(new Date(c.last+'T12:00'),335)))):'—'}</td></tr>`).join('')}
-    </tbody></table></div></div>
-    <div class="grid g3 gap-t">
-      <div class="panel"><div class="body"><div class="stat"><div class="l">Referral rate</div><div class="v">2 of ${cs.length}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Every warranty-walk text carries a $200 referral offer.</p></div></div>
-      <div class="panel"><div class="body"><div class="stat"><div class="l">Repeat work</div><div class="v">1 of ${cs.length}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Drain customers convert to pads, patios and sod. The 30-day check is the opener.</p></div></div>
-      <div class="panel"><div class="body"><div class="stat"><div class="l">Avg ticket</div><div class="v mono">${fmt(cs.length?cs.reduce((a,c)=>a+c.ltv,0)/cs.length:0)}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Up from ~$4,800 when quotes went out in 3–5 days.</p></div></div>
-    </div>`;
+    <div class="tbl-wrap"><table><thead><tr><th>Customer</th><th>Jobs</th><th>Lifetime</th><th>Last install</th><th>Warranty until</th><th>Next touch</th></tr></thead><tbody>${cs.map(c=>`<tr class="click" data-act="lead.open" data-id="${c.l.id}"><td><b>${esc(c.l.name)}</b><span class="sub">${esc(c.l.area)} · ${esc(c.l.phone)}</span></td><td>${c.js.map(j=>TYPES[j.type]).join(', ')||'—'}</td><td class="mono">${fmt(c.ltv)}</td><td>${c.last?dLabel(c.last):'—'}</td><td>${c.last?dLabel(iso(addD(new Date(c.last+'T12:00'),365))):'—'}</td><td style="color:var(--ink2)">${c.last?(addD(new Date(c.last+'T12:00'),30)>TODAY?'30-day check · '+dLabel(iso(addD(new Date(c.last+'T12:00'),30))):'Warranty walk · '+dLabel(iso(addD(new Date(c.last+'T12:00'),335)))):'—'}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">No customers yet.</td></tr>'}</tbody></table></div></div>
+    <div class="grid g3 gap-t"><div class="panel"><div class="body"><div class="stat"><div class="l">Referral rate</div><div class="v">${S.leads.filter(l=>l.src==='Referral').length} of ${cs.length||1}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Every warranty-walk text carries a $200 referral offer.</p></div></div><div class="panel"><div class="body"><div class="stat"><div class="l">Repeat work</div><div class="v">1 of ${cs.length||1}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Drain customers convert to pads, patios and sod. The 30-day check is the opener.</p></div></div><div class="panel"><div class="body"><div class="stat"><div class="l">Avg ticket</div><div class="v mono">${fmt(cs.length?cs.reduce((a,c)=>a+c.ltv,0)/cs.length:0)}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Up from ~$4,800 when quotes went out in 3–5 days.</p></div></div></div>`;
 }
 
-/* ---------- Automations ---------- */
-const AUTOS=[['textback','Missed-call text-back','Any unanswered call gets a text within 60 seconds.'],['formreply','Web-form auto-reply','Instant text + email with the next two open slots.'],['followup','Quote follow-ups · day 2 / 5 / 12','Runs until the deposit lands or the lead is marked lost.'],['rainpre','Pre-rain campaign','Day before a ≥ threshold rain: open quotes.'],['rainpost','Post-rain campaign','Morning after: every past lead and customer.'],['po','Auto purchase orders','Deposit paid → BOM → POs to Ferguson / Southern Aggregates / Site One.'],['reminder','Appointment reminders','6:00 PM night-before text; "on the way" text.'],['invoice','Auto invoicing','Deposit link on acceptance; balance link on completion.'],['review','Review ask · +24h','One text with the direct Google review link.'],['check30','30-day check-in','"How\'s it draining?" — repeat-work opener.'],['warranty11','Warranty walk · +11 mo','Free walk-through offer + $200 referral.']];
-const TPLS=[['textback','Missed-call text-back'],['formreply','Web-form auto-reply'],['d2','Follow-up · day 2'],['d5','Follow-up · day 5'],['d12','Follow-up · day 12'],['rainpre','Pre-rain'],['rainpost','Post-rain'],['review','Review ask'],['check30','30-day check-in'],['warranty11','Warranty walk']];
-function renderAutomations(){
-  const s=S.settings;
-  $('#s-automations').innerHTML=`
-  <div class="grid g2">
-    <div class="panel"><header><h3>Automations</h3><span class="hint">${Object.values(s.auto).filter(Boolean).length} of ${AUTOS.length} on</span></header>
-      <div class="body">${AUTOS.map(a=>`<div class="toggle"><div><div class="tt">${a[1]}</div><div class="td">${a[2]}</div></div><button class="sw ${s.auto[a[0]]?'on':''}" role="switch" aria-checked="${!!s.auto[a[0]]}" aria-label="${a[1]}" data-act="auto.toggle" data-id="${a[0]}"></button></div>`).join('')}</div></div>
+/* ---------- Reports ---------- */
+function renderReports(){
+  const L=S.leads;const tot=L.length,booked=L.filter(l=>['booked','quoted','won'].includes(l.status)).length,quoted=L.filter(l=>['quoted','won'].includes(l.status)).length+L.filter(l=>l.status==='lost').length,won=L.filter(l=>l.status==='won').length;
+  const srcs={};L.forEach(l=>{const s=srcs[l.src]=srcs[l.src]||{n:0,won:0,val:0};s.n++;if(l.status==='won'){s.won++;s.val+=S.jobs.filter(j=>j.leadId===l.id&&j.stage>0).reduce((a,j)=>a+j.value,0)}});
+  const mix={};S.jobs.forEach(j=>{mix[j.type]=(mix[j.type]||0)+j.value});const mixK=Object.keys(mix);
+  const resp=L.filter(l=>l.resp>0).map(l=>l.resp);const buckets=[['<30s',resp.filter(r=>r<30).length],['30–60s',resp.filter(r=>r>=30&&r<=60).length],['1–5 min',resp.filter(r=>r>60&&r<=300).length],['>5 min',resp.filter(r=>r>300).length]];
+  const mj=S.jobs.map(j=>({j,m:margin(j)})).sort((a,b)=>a.m/a.j.value-b.m/b.j.value);
+  const wk=S.weekly;
+  $('#s-reports').innerHTML=`<div class="grid g2">
     <div class="grid" style="align-content:start">
-      <div class="panel"><header><h3>Business settings</h3></header><div class="body form">
-        <div><label for="stDep">Deposit %</label><input id="stDep" type="number" min="0" max="100" value="${s.deposit}" data-act="set.deposit"></div>
-        <div><label for="stTh">Rain threshold (in)</label><input id="stTh" type="number" step="0.1" min="0.5" value="${s.threshold}" data-act="set.threshold"></div>
-        <div class="full"><label for="stHours">Hours</label><input id="stHours" value="${esc(s.hours)}" data-act="set.hours"></div>
-        <div class="full"><label for="stNotify">Charlie gets pushes at</label><input id="stNotify" value="${esc(s.notify)}" data-act="set.notify"></div>
-        <div class="full"><label for="stWar">Warranty line on quotes</label><input id="stWar" value="${esc(s.warranty)}" data-act="set.warranty"></div></div></div>
-      <div class="panel"><header><h3>Message templates</h3><span class="hint">tap to edit · {inches} {day} {slots} fill in</span></header><div class="body"><div class="morelist">${TPLS.map(t=>`<button data-act="tpl.edit" data-id="${t[0]}"><span><b>${t[1]}</b><br><span style="font-size:12px;color:var(--ink3)">${esc(s.tpl[t[0]].slice(0,64))}…</span></span><span style="color:var(--ink3)">›</span></button>`).join('')}</div></div></div>
+      <div class="panel"><header><h3>Funnel · all time</h3><span class="hint">conversion step to step</span></header><div class="body">${funnelSVG([['Leads',tot],['Estimate booked',booked],['Quoted',quoted],['Won',won]])}</div></div>
+      <div class="panel"><header><h3>Lead sources</h3><span class="hint">where the money comes from</span></header><div class="tbl-wrap"><table><thead><tr><th>Source</th><th>Leads</th><th>Won</th><th>Close</th><th>Revenue</th></tr></thead><tbody>${Object.entries(srcs).sort((a,b)=>b[1].val-a[1].val).map(([k,s])=>`<tr><td><b>${esc(k)}</b></td><td class="mono">${s.n}</td><td class="mono">${s.won}</td><td class="mono">${Math.round(s.won/s.n*100)}%</td><td class="mono">${fmt(s.val)}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="panel"><header><h3>Speed to lead</h3><span class="hint">response-time distribution · target &lt; 60s</span></header><div class="body">${barsSVG(buckets.map(b=>b[1]),buckets.map(b=>b[0]),{h:120,vals:true})}</div></div>
     </div>
-  </div>`;
+    <div class="grid" style="align-content:start">
+      <div class="panel"><header><h3>Booked revenue · weekly</h3><span class="hint">${fmt(wk.reduce((a,b)=>a+b,0))} over 8 weeks</span></header><div class="body">${barsSVG(wk,wk.map((_,i)=>'W'+(i+1)),{hi:wk.length-1,money:true,vals:true})}</div></div>
+      <div class="panel"><header><h3>Service mix</h3><span class="hint">quoted value by service</span></header><div class="body">${barsSVG(mixK.map(k=>mix[k]),mixK.map(k=>TYPES[k].split(' ')[0]),{h:130,money:true,vals:true})}</div></div>
+      <div class="panel"><header><h3>Margin by job</h3><span class="hint">lowest first · materials + $${LAB_RATE}/h labor</span></header><div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Price</th><th>Margin</th><th>%</th></tr></thead><tbody>${mj.map(({j,m})=>`<tr class="click" data-act="job.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td class="mono">${fmt(m)}</td><td class="mono" style="color:${m/j.value<.45?'var(--crit)':'var(--ok)'}">${Math.round(m/j.value*100)}%</td></tr>`).join('')}</tbody></table></div></div>
+    </div></div>`;
 }
-function tplSheet(k){const name=TPLS.find(t=>t[0]===k)[1];
-  openSheet(`<header><h3>${name}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><textarea id="tplText" style="min-height:140px">${esc(S.settings.tpl[k])}</textarea><div class="sms">${esc(fill(S.settings.tpl[k]))}</div></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="tpl.save" data-id="${k}">Save</button></div>`)}
+
+/* ---------- Edge (competitive) ---------- */
+const mark=v=>v===1?'<span class="ck ok">✓</span>':v===.5?'<span class="ck half">~</span>':'<span class="ck no">✕</span>';
+function renderEdge(){
+  $('#s-edge').innerHTML=`<div class="panel"><header><h3>Baton Rouge drainage market · who does what</h3><span class="hint">verified on each site 2026-09-15 · tap a row for detail + sources</span></header>
+    <div class="tbl-wrap"><table class="cmp"><thead><tr><th>Company</th>${COMPCOLS.map(c=>`<th>${c[1]}</th>`).join('')}</tr></thead><tbody>${COMP.map((c,i)=>`<tr class="click ${c.us?'us':''}" data-act="edge.open" data-id="${i}"><td><b>${esc(c.n)}</b><span class="sub">${esc(c.hq)}</span></td>${COMPCOLS.map(k=>`<td style="text-align:center">${mark(c[k[0]])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <div class="body" style="padding-top:8px"><div class="legend"><span><span class="ck ok">✓</span> stated / present</span><span><span class="ck half">~</span> vague or partial</span><span><span class="ck no">✕</span> absent on their site</span></div></div></div>
+  <div class="grid g2 gap-t">
+    <div class="panel"><header><h3>The voids — and how Command fills each one</h3><span class="hint">every row maps to a feature in this app</span></header>
+      <div class="body">${THEMES.map(t=>`<div class="void"><div class="vf">${esc(t.flaw)}</div><div class="vw">${esc(t.who)}</div><div class="ve">${esc(t.exploit)}</div><div class="vt"><span class="pill new">${esc(t.feat)}</span></div></div>`).join('')}</div></div>
+    <div class="grid" style="align-content:start">
+      <div class="panel"><header><h3>Why now · Baton Rouge</h3><span class="hint">sourced</span></header><div class="body">${FACTS.map(f=>`<div class="fact">${esc(f[0])} <a href="${f[1]}" target="_blank" rel="noopener">source ↗</a></div>`).join('')}</div></div>
+      <div class="panel"><header><h3>Positioning line</h3></header><div class="body"><p style="font:600 20px/1.25 'Barlow Condensed';margin:0 0 8px">"The only drainage contractor in Baton Rouge that publishes its price, books you in 60 seconds, maps your yard in 3D, and shows up the morning after the storm."</p><p style="font-size:13px;color:var(--ink2);margin:0">[Certain] Every clause is something no competitor above states on their site. [Guessing] Reply/booking rates for rain campaigns are demo placeholders until the first 90 days of real data.</p></div></div>
+    </div></div>`;
+}
+function edgeDrawer(i){const c=COMP[i];
+  openDrawer(`<header><div><h3>${esc(c.n)}</h3><div class="sub">${esc(c.hq)}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="dbody">
+    <div><h4>Capabilities</h4><dl class="kv">${COMPCOLS.map(k=>`<dt>${k[1]}</dt><dd>${mark(c[k[0]])}</dd>`).join('')}</dl></div>
+    <div><h4>What we saw</h4><p style="font-size:13px;margin:0;color:var(--ink2)">${esc(c.notes)}</p></div>
+    <div><h4>Sources</h4>${c.urls.map(u=>`<div style="font-size:12.5px;word-break:break-all"><a href="${u}" target="_blank" rel="noopener">${esc(u)}</a></div>`).join('')}</div>
+    ${c.us?'':`<div><h4>How Scag Scapes wins this one</h4><ul class="timeline">${COMPCOLS.filter(k=>c[k[0]]!==1).map(k=>`<li class="done"><i></i><div>${k[1]}<div class="d">${({price:'Publish $25–60/LF; quote same day.',book:'Text-back offers two open slots in 60s.',sla:'"60 seconds, day or night" — measured on the dashboard.',warr:'1-yr workmanship on every quote; 11-month warranty walk.',tech:'Moasure 3D survey attached to every drain quote.',rain:'NWS-triggered pre/post-rain campaigns.',proof:'Before/after by neighborhood, auto-added after each review.',fin:'Deposit + balance by text; financing optional via partner.'})[k[0]]}</div></div></li>`).join('')}</ul></div>`}
+  </div>`)}
+
+/* ---------- API map & data ---------- */
+function renderApi(){
+  const st=LIVE_STATUS;
+  $('#s-api').innerHTML=`<div class="grid g21">
+    <div class="grid" style="align-content:start">
+      <div class="panel"><header><h3>Data source</h3>${modeChip()}</header><div class="body">
+        <div class="row-actions"><button class="btn ${LIVE()?'primary':''}" data-act="mode.set" data-id="live">Live · Supabase</button><button class="btn ${LIVE()?'':'primary'}" data-act="mode.set" data-id="local">Local demo</button><button class="btn" data-act="refresh">Reload</button></div>
+        <dl class="kv" style="margin-top:12px"><dt>Project</dt><dd class="mono" style="font-size:12px">cscowglyrgxqxwcnftzt · us-west-2</dd><dt>Status</dt><dd>${esc(st.msg)}${st.ms?` · <span class="mono">${st.ms} ms</span>`:''}</dd><dt>Tenant</dt><dd class="mono">${CFG.tenant}</dd><dt>Auth</dt><dd style="font-size:12.5px">anon key + RLS (tenant = demo only); other tenants need <span class="mono">x-ss-key</span></dd></dl>
+        ${Object.keys(st.counts).length?`<h4 style="margin-top:12px">Row counts</h4><div class="counts">${Object.entries(st.counts).map(([k,v])=>`<div class="stat"><div class="l">ss_${k}</div><div class="v mono">${v}</div></div>`).join('')}</div>`:''}
+      </div></div>
+      <div class="panel"><header><h3>Integrations</h3><span class="hint">what plugs in where</span></header><div class="body">${INTEGRATIONS.map(i=>`<div class="toggle"><div><div class="tt">${esc(i[0])} <span class="pill mute">${esc(i[1])}</span></div><div class="td">${esc(i[2])}</div></div></div>`).join('')}</div></div>
+    </div>
+    <div class="grid" style="align-content:start">
+      <div class="panel"><header><h3>How it flows</h3></header><div class="body">${flowSVG()}</div></div>
+      <div class="panel"><header><h3>Endpoints · ss-api</h3><span class="hint">${esc(CFG.url+CFG.fn)}</span></header>
+        <div class="tbl-wrap"><table><thead><tr><th></th><th>Path</th><th>What it does</th><th></th></tr></thead><tbody>${API_DOCS.map((e,i)=>`<tr><td><span class="pill ${e[0]==='GET'?'new':'soil'} mono">${e[0]}</span></td><td class="mono" style="font-size:12px">${esc(e[1])}</td><td style="font-size:12.5px;color:var(--ink2)">${esc(e[2])}</td><td>${e[1].includes(':id')||e[1]==='/reset'||e[1]==='/payments/webhook'?'':`<button class="btn sm" data-act="api.try" data-id="${i}">Try</button>`}</td></tr>`).join('')}</tbody></table></div></div>
+      <div class="panel"><header><h3>Schema</h3><span class="hint">Postgres · RLS per tenant</span></header><div class="body schema">${[['ss_tenants','id · name · api_key (hidden) · settings'],['ss_leads','status: new→booked→quoted→won|lost · response_seconds · slot'],['ss_messages','lead_id · who: sys|cust|charlie · body'],['ss_quotes','inputs · lines · bom · total · material_cost · status'],['ss_jobs','stage 0–4 · stage_history · materials[] · install_date · paid_at'],['ss_bookings','date · time · kind: est|job|held · unique(date,time)'],['ss_payments','job_id · kind: deposit|balance · amount · method'],['ss_reviews','stars · body · reply'],['ss_campaigns','kind: pre|post · inches · sent · replied · booked'],['ss_events','the live feed'],['ss_automations','key · enabled · template'],['ss_forecast','day_offset 0–6 · inches'],['ss_kpis (view)','open_leads · avg_response · close_rate · booked_value · collected · rating']].map(t=>`<div class="tbl"><b class="mono">${t[0]}</b><span>${esc(t[1])}</span></div>`).join('')}</div></div>
+    </div></div>`;
+}
+function flowSVG(){const W=520,H=210;const box=(x,y,w,l,sub,c)=>`<rect x="${x}" y="${y}" width="${w}" height="44" rx="5" fill="${c||'var(--panel2)'}" stroke="var(--line)"/><text x="${x+w/2}" y="${y+18}" font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--ink)">${l}</text><text x="${x+w/2}" y="${y+33}" font-size="9.5" text-anchor="middle" fill="var(--ink3)" font-family="IBM Plex Mono">${sub}</text>`;const ar=(x1,y1,x2,y2)=>`<path d="M${x1} ${y1} C ${(x1+x2)/2} ${y1}, ${(x1+x2)/2} ${y2}, ${x2} ${y2}" fill="none" stroke="var(--water)" stroke-width="1.5" marker-end="url(#ah)"/>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--water)"/></marker></defs>
+  ${box(0,10,110,'Twilio','call · sms')}${box(0,80,110,'Website form','scagscapes.com')}${box(0,150,110,'NWS · Stripe','cron · webhook')}
+  ${box(170,80,150,'ss-api','Edge Function · Deno','var(--water-soft)')}
+  ${box(390,10,130,'Postgres','RLS · 12 tables')}${box(390,80,130,'Command app','desktop · phone')}${box(390,150,130,'Outbound','SMS · PO email · pay link')}
+  ${ar(110,32,170,98)}${ar(110,102,170,102)}${ar(110,172,170,106)}${ar(320,96,390,32)}${ar(320,102,390,102)}${ar(320,108,390,172)}
+  <text x="245" y="140" font-size="10" text-anchor="middle" fill="var(--ink3)">intent · pricing · stage machine · campaigns</text></svg>`}
+function apiTrySheet(i){const e=API_DOCS[i];
+  openSheet(`<header><h3><span class="pill ${e[0]==='GET'?'new':'soil'} mono">${e[0]}</span> ${esc(e[1])}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><p style="font-size:13px;color:var(--ink2);margin:0">${esc(e[2])}</p>${e[3]?`<div><label class="fl" for="apiBody">Request body</label><textarea id="apiBody" class="mono" style="font-size:12px;min-height:110px">${esc(JSON.stringify(e[3],null,2))}</textarea></div>`:''}<div><label class="fl">Response</label><pre id="apiOut" class="mono out">—</pre></div></div><div class="sfoot"><button class="btn" data-act="close">Close</button><button class="btn primary" data-act="api.send" data-id="${i}">Send request</button></div>`)}
+
+/* ---------- Automations ---------- */
+function renderAutomations(){const s=S.settings;
+  $('#s-automations').innerHTML=`<div class="grid g2">
+    <div class="panel"><header><h3>Automations</h3><span class="hint">${Object.values(s.auto).filter(Boolean).length} of ${AUTOS.length} on${LIVE()?' · ss_automations':''}</span></header><div class="body">${AUTOS.map(a=>`<div class="toggle"><div><div class="tt">${a[1]}</div><div class="td">${a[2]}</div></div><button class="sw ${s.auto[a[0]]?'on':''}" role="switch" aria-checked="${!!s.auto[a[0]]}" aria-label="${a[1]}" data-act="auto.toggle" data-id="${a[0]}"></button></div>`).join('')}</div></div>
+    <div class="grid" style="align-content:start">
+      <div class="panel"><header><h3>Business settings</h3></header><div class="body form"><div><label for="stDep">Deposit %</label><input id="stDep" type="number" min="0" max="100" value="${s.deposit}" data-act="set.deposit"></div><div><label for="stTh">Rain threshold (in)</label><input id="stTh" type="number" step="0.1" min="0.5" value="${s.threshold}" data-act="set.threshold"></div><div class="full"><label for="stHours">Hours</label><input id="stHours" value="${esc(s.hours)}" data-act="set.hours"></div><div class="full"><label for="stNotify">Charlie gets pushes at</label><input id="stNotify" value="${esc(s.notify)}" data-act="set.notify"></div><div class="full"><label for="stWar">Warranty line on quotes</label><input id="stWar" value="${esc(s.warranty)}" data-act="set.warranty"></div><div class="full"><button class="btn sm" data-act="set.save">Save settings</button></div></div></div>
+      <div class="panel"><header><h3>Message templates</h3><span class="hint">tap to edit · {inches} {day} {slots} {time} fill in</span></header><div class="body"><div class="morelist">${TPLS.map(t=>`<button data-act="tpl.edit" data-id="${t[0]}"><span><b>${t[1]}</b><br><span style="font-size:12px;color:var(--ink3)">${esc((s.tpl[t[0]]||'').slice(0,64))}…</span></span><span style="color:var(--ink3)">›</span></button>`).join('')}</div></div></div>
+    </div></div>`;
+}
+function tplSheet(k){const name=TPLS.find(t=>t[0]===k)[1];openSheet(`<header><h3>${name}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><textarea id="tplText" style="min-height:140px">${esc(S.settings.tpl[k]||'')}</textarea><div class="sms">${esc(fill(S.settings.tpl[k]||''))}</div></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="tpl.save" data-id="${k}">Save</button></div>`)}
 
 /* ---------- drawer / sheet ---------- */
 function openDrawer(html){const d=$('#drawer');d.innerHTML=html;d.classList.add('on');d.setAttribute('aria-hidden','false');$('#scrim').classList.add('on')}
 function openSheet(html){const s=$('#sheet');s.innerHTML=html;s.classList.add('on');$('#scrim').classList.add('on');setTimeout(()=>{const f=s.querySelector('input,select,textarea');f&&f.focus()},30)}
 function closeAll(){const d=$('#drawer');d.classList.remove('on');d.setAttribute('aria-hidden','true');$('#sheet').classList.remove('on');$('#scrim').classList.remove('on')}
-function moreSheet(){openSheet(`<header><h3>More</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody morelist">${[['jobs','Jobs'],['rain','Rain trigger'],['billing','Billing & reviews'],['customers','Customers'],['automations','Automations']].map(x=>`<button data-act="nav" data-id="${x[0]}"><span>${x[1]}</span><span style="color:var(--ink3)">›</span></button>`).join('')}<button data-act="reset"><span style="color:var(--crit)">Reset demo data</span></button></div>`)}
+function moreSheet(){openSheet(`<header><h3>More</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody morelist">${[['jobs','Jobs'],['rain','Rain trigger'],['billing','Billing & reviews'],['customers','Customers'],['reports','Reports'],['edge','Competitive edge'],['api','API & data'],['automations','Automations']].map(x=>`<button data-act="nav" data-id="${x[0]}"><span>${x[1]}</span><span style="color:var(--ink3)">›</span></button>`).join('')}<button data-act="reset"><span style="color:var(--crit)">Reset demo data</span></button></div>`)}
 
-/* ---------- lead simulation ---------- */
+/* ---------- local simulation helpers ---------- */
 const NAMES=['T. Broussard','L. Hebert','C. Richard','P. Dupuis','N. Alvarez','J. Melancon','B. Landry','E. Savoie'];
 const AREAS=['Zachary','Baker','Prairieville','Central','Gonzales','Denham Springs'];
 const NEEDS=[['Standing water, back yard','drain'],['French drain','drain'],['Parking pad for boat','pad'],['Travertine patio','patio'],['Cedar privacy fence','fence'],['Sod + drainage','sod'],['Screened porch','porch']];
-function newLead(kind){
-  const sec=rnd(30,58),nm=pick(NAMES),ar=pick(AREAS),nd=pick(NEEDS),slots=openSlots(2),s=slots[0];
-  const id=uid();const phone='(225) 555-0'+rnd(100,999);
-  const thread=kind==='call'?[{who:'sys',t:nowT(),msg:S.settings.tpl.textback},{who:'cust',t:nowT(),msg:nd[0]},{who:'sys',t:nowT(),msg:`Got it. Next open slots: ${slots.map(slotStr).join(' or ')} — which works?`},{who:'cust',t:nowT(),msg:slotStr(s).split(' ')[0]},{who:'sys',t:nowT(),msg:`Booked — ${slotStr(s)}. You'll get a reminder the night before. — Scag Scapes`}]
-    :[{who:'sys',t:nowT(),msg:S.settings.tpl.formreply.replace('{slots}',slots.map(slotStr).join(' or '))},{who:'cust',t:nowT(),msg:slotStr(s).split(' ')[0]+' please'},{who:'sys',t:nowT(),msg:`Booked — ${slotStr(s)}. See you then.`}];
+const now=()=>new Date().toISOString();
+function newLeadLocal(kind){
+  const sec=rnd(30,58),nm=pick(NAMES),ar=pick(AREAS),nd=pick(NEEDS),slots=openSlots(2),s=slots[0];const id=uid();const phone='(225) 555-0'+rnd(100,999);
+  const thread=kind==='call'?[{who:'sys',t:now(),msg:S.settings.tpl.textback},{who:'cust',t:now(),msg:nd[0]},{who:'sys',t:now(),msg:`Got it. Next open slots: ${slots.map(slotStr).join(' or ')} — which works?`},{who:'cust',t:now(),msg:slotStr(s).split(' ')[0]},{who:'sys',t:now(),msg:`Booked — ${slotStr(s)}. You'll get a reminder the night before. — Scag Scapes`}]
+    :[{who:'sys',t:now(),msg:S.settings.tpl.formreply.replace('{slots}',slots.map(slotStr).join(' or '))},{who:'cust',t:now(),msg:slotStr(s).split(' ')[0]+' please'},{who:'sys',t:now(),msg:`Booked — ${slotStr(s)}. See you then.`}];
   S.leads.unshift({id,name:kind==='call'?phone:nm,phone,area:kind==='call'?'—':ar,addr:'',src:kind==='call'?'Missed call':'Web form',type:nd[1],need:nd[0],status:'booked',resp:sec,created:iso(TODAY),slot:s,thread,notes:''});
   S.bookings.push({date:s.date,time:s.time,kind:'est',label:'Estimate · '+(kind==='call'?phone:nm)+' · '+nd[0].toLowerCase(),leadId:id});
   log(kind==='call'?'Text-back':'Form auto-reply',(kind==='call'?phone:nm+' · '+ar),`${kind==='call'?'Missed call':'Form'} → replied in ${sec}s. Need: ${nd[0]}. Offered ${slotStr(s)}, accepted. On the schedule.`);
   toast(`Lead handled in ${sec}s — ${slotStr(s)} booked`);return id;
 }
+async function newLeadLive(kind){
+  const nd=pick(NEEDS),phone='(225) 555-0'+rnd(100,999);
+  if(kind==='call'){const r=await api('/webhooks/call-missed',{from:phone});await api('/webhooks/sms',{from:phone,body:nd[0]});const b=await api('/webhooks/sms',{from:phone,body:'yes'});toast(`Text-back in ${r.response_seconds}s → ${b.action}`)}
+  else{const r=await api('/webhooks/form',{name:pick(NAMES),phone,area:pick(AREAS),need:nd[0],service_type:nd[1]});const b=await api('/webhooks/sms',{from:phone,body:'yes'});toast(`Form answered → ${b.action}`)}
+}
+function openInstall(){for(let i=2;i<30;i++){const d=addD(TODAY,i);if(d.getDay()===0)continue;const ds=iso(d);if(!S.bookings.some(b=>b.date===ds&&b.kind==='job'))return ds}return iso(addD(TODAY,30))}
+function addReviewLocal(j){S.reviewsTotal++;const l=j.leadId?lead(j.leadId):null;S.reviews.unshift({id:uid(),jobId:j.id,who:j.name+(l&&l.area?' · '+l.area:''),t:now(),stars:5,text:pick(['Fast, clean, and the water actually goes where Charlie said it would.','Showed up when he said, finished when he said, yard drains. That\'s it, that\'s the review.','Only contractor who mapped the elevation before quoting. Worth it.']),reply:''});log('Review posted',j.name,'★★★★★ via the 24h review link. Auto-thanked. Added to site.');j.reviewed=true}
+function advanceLocal(id,dir){
+  const j=job(id);if(!j)return;const ns=j.stage+dir;if(ns<0||ns>4)return;j.stage=ns;
+  if(dir>0){j.hist[ns]=iso(TODAY);
+    if(ns===1){if(!j.mats.length){const q=S.quotes.find(x=>x.id===j.quoteId);j.mats=(q?q.bom:calc(j.type,S.q[j.type]).bom).map(b=>[...b,'queued'])}if(!j.install){j.install=openInstall();S.bookings.push({date:j.install,time:'9:00–3:00',kind:'job',label:'Install · '+j.name+' · '+j.scope,jobId:j.id})}S.payments.push({jobId:j.id,kind:'deposit',amount:Math.round(j.value*dep()),method:'card',t:iso(TODAY)});if(j.leadId){const l=lead(j.leadId);l.status='won';l.thread.push({who:'cust',t:now(),msg:'Paid the deposit.'},{who:'sys',t:now(),msg:`Got it — thank you! You're on the board for ${dLabel(j.install)}. Materials are ordered; you'll get a reminder the night before.`})}S.weekly[S.weekly.length-1]+=j.value}
+    if(ns===2)j.mats.forEach(m=>m[3]='ordered');if(ns===3)j.mats.forEach(m=>m[3]='delivered');
+    if(ns===4){j.paid=iso(TODAY);S.payments.push({jobId:j.id,kind:'balance',amount:Math.round(j.value*(1-dep())),method:'ach',t:iso(TODAY)});if(j.leadId)lead(j.leadId).thread.push({who:'sys',t:now(),msg:S.settings.tpl.review});setTimeout(()=>{addReviewLocal(j);renderAll()},1300)}
+    log(STAGES[ns],j.name+' · '+j.scope,AFTER[ns-1]);toast(`${j.name} → ${STAGES[ns]}`)}
+  else{log('Stepped back',j.name,'Moved to '+STAGES[ns]+'. No customer message sent.');toast(`${j.name} ← ${STAGES[ns]}`)}
+}
+function fireRainLocal(kind){
+  const a=audience();const sent=kind==='post'?a.quoted+a.never+a.past:a.quoted;const replied=rnd(Math.round(sent*.15),Math.round(sent*.3));const held=S.bookings.filter(b=>b.kind==='held'&&b.date>=iso(TODAY));const booked=Math.min(held.length||2,Math.ceil(replied/3));
+  held.slice(0,booked).forEach(b=>{b.kind='est';b.label='Site visit · post-rain lead'});for(let i=held.length;i<booked;i++){const s=openSlots(1)[0];if(s)S.bookings.push({date:s.date,time:s.time,kind:'est',label:'Site visit · post-rain lead'})}
+  const inches=Math.max(...S.forecast);S.campaigns.push({t:now(),kind,sent,replied,booked,inches});
+  for(let i=0;i<Math.min(2,booked);i++)S.leads.unshift({id:uid(),name:pick(['P. Dupuis','N. Alvarez','J. Melancon','C. Richard']),phone:'(225) 555-0'+rnd(100,999),area:pick(AREAS),addr:'',src:'Rain campaign',type:'drain',need:'Yard holding water after '+inches+'"',status:'booked',resp:0,created:iso(TODAY),slot:null,thread:[{who:'sys',t:now(),msg:fill(S.settings.tpl.rainpost)},{who:'cust',t:now(),msg:'YES. Whole back yard is underwater.'}],notes:''});
+  log(kind==='post'?'Post-rain campaign':'Pre-rain campaign',sent+' contacts',`${inches}" event. ${replied} replies, ${booked} site visits booked.`);toast(`${replied} replies · ${booked} booked`);
+}
+const REPLIES={'yes':null,'how much is the deposit?':s=>`${s.deposit}% to lock the date, balance when we're done and you're happy. Link: pay.scagscapes.com`,'does the price include hauling the dirt off?':()=>'It does — spoils hauled, trench line restored.','my neighbor wants a quote too.':()=>'Love it — send me their number and I\'ll text them. $200 off your balance for the referral.'};
+function replyLocal(l,text){l.thread.push({who:'cust',t:now(),msg:text});const t=text.toLowerCase();let a,act='answered';const slots=openSlots(2);
+  if(/^(yes|y|yeah|yep|sure|ok)/.test(t)){const s=slots[0];S.bookings=S.bookings.filter(b=>!(b.leadId===l.id&&b.kind==='est'));S.bookings.push({date:s.date,time:s.time,kind:'est',label:'Estimate · '+l.name+' · '+l.need.toLowerCase(),leadId:l.id});l.slot=s;if(l.status==='new')l.status='booked';a=`Booked — ${slotStr(s)}. You'll get a reminder the night before. — Scag Scapes`;act='booked'}
+  else if(/(deposit|how much|cost|price)/.test(t))a=`${S.settings.deposit}% deposit locks the date, balance when we're done and you're happy. Charlie maps the yard first so the price is exact.`;
+  else if(/(haul|dirt|spoil)/.test(t))a='It does — spoils hauled, trench line restored.';
+  else if(/(neighbor|friend|referral)/.test(t))a='Love it — send me their number and I\'ll text them. $200 off your balance for the referral.';
+  else{a=`Got it. Charlie does 3D elevation mapping so the fix actually works. Next open site visits: ${slots.map(slotStr).join(' or ')} — which works? Or book: scagscapes.com/book`;act='offered'}
+  l.thread.push({who:'sys',t:now(),msg:a});log('Reply handled',l.name,`"${text.slice(0,60)}" → ${act} automatically.`)}
 
 /* ---------- router / render ---------- */
-const TITLES={overview:['Overview',()=>`${dLabel(iso(TODAY))} · Greater Baton Rouge · ${S.forecast[2]}" rain in 48 hrs`],leads:['Leads',()=>'Every call, text and form — answered in under a minute'],schedule:['Schedule',()=>'Estimates and installs, self-booked'],quote:['Quote builder',()=>'Six services, one price sheet, same-day send'],jobs:['Jobs',()=>'Five stages, each one triggers the next step'],rain:['Rain trigger',()=>'Demand capture tied to the weather'],billing:['Billing & reviews',()=>'Get paid faster, get reviewed every time'],customers:['Customers',()=>'Warranty walks, check-ins, referrals'],automations:['Automations',()=>'Everything that runs without Charlie']};
-const R={overview:renderOverview,leads:renderLeads,schedule:renderSchedule,quote:renderQuote,jobs:renderJobs,rain:renderRain,billing:renderBilling,customers:renderCustomers,automations:renderAutomations};
-function show(sec){S.ui.sec=sec;$$('.section').forEach(s=>s.classList.toggle('on',s.id==='s-'+sec));$$('[data-act="nav"]').forEach(b=>b.classList.toggle('on',b.dataset.id===sec));$('#secTitle').textContent=TITLES[sec][0];$('#secSub').textContent=TITLES[sec][1]();$$('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.id===sec||(b.dataset.act==='more'&&['jobs','rain','billing','customers','automations'].includes(sec))));renderAll();window.scrollTo({top:0})}
-function renderAll(){renderKpis();R[S.ui.sec]();save()}
+const TITLES={overview:['Overview',()=>`${dLabel(iso(TODAY))} · Greater Baton Rouge · ${S.forecast[2]}" rain in 48 hrs`],leads:['Leads',()=>'Every call, text and form — answered in under a minute'],schedule:['Schedule',()=>'Estimates and installs, self-booked'],quote:['Quote builder',()=>'Six services, one price sheet, same-day send'],jobs:['Jobs',()=>'Five stages, each one triggers the next step'],rain:['Rain trigger',()=>'Demand capture tied to the weather'],billing:['Billing & reviews',()=>'Get paid faster, get reviewed every time'],customers:['Customers',()=>'Warranty walks, check-ins, referrals'],reports:['Reports',()=>'Funnel, sources, speed, margin'],edge:['Competitive edge',()=>'Seven Baton Rouge competitors, eight voids, one plan'],api:['API & data',()=>'Supabase backend, endpoints, integrations'],automations:['Automations',()=>'Everything that runs without Charlie']};
+const R={overview:renderOverview,leads:renderLeads,schedule:renderSchedule,quote:renderQuote,jobs:renderJobs,rain:renderRain,billing:renderBilling,customers:renderCustomers,reports:renderReports,edge:renderEdge,api:renderApi,automations:renderAutomations};
+function show(sec){if(!R[sec])sec='overview';S.ui.sec=sec;$$('.section').forEach(s=>s.classList.toggle('on',s.id==='s-'+sec));$$('[data-act="nav"]').forEach(b=>b.classList.toggle('on',b.dataset.id===sec));$('#secTitle').textContent=TITLES[sec][0];$('#secSub').textContent=TITLES[sec][1]();$$('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.id===sec||(b.dataset.act==='more'&&!['overview','leads','schedule','quote'].includes(sec))));renderAll();window.scrollTo({top:0})}
+function renderAll(){renderKpis();$('#modeChip').innerHTML=modeChip();R[S.ui.sec]();saveLocal()}
+let busy=false;async function run(fn,label){if(busy)return;busy=true;document.body.classList.add('busy');try{await fn()}catch(e){toast((label||'Action')+' failed: '+e.message)}finally{busy=false;document.body.classList.remove('busy')}}
+const deb={};const debounce=(k,fn,ms=600)=>{clearTimeout(deb[k]);deb[k]=setTimeout(fn,ms)};
 
 /* ---------- actions ---------- */
 const A={
-  nav:id=>{closeAll();show(id)},
-  more:()=>moreSheet(),
-  close:()=>closeAll(),
-  reset:()=>{if(confirm('Reset all demo data to the starting state?')){try{localStorage.removeItem(KEY)}catch(e){}S=seed();closeAll();show('overview');toast('Demo reset')}},
+  nav:id=>{closeAll();show(id)}, more:()=>moreSheet(), close:()=>closeAll(), refresh:()=>run(()=>refresh(),'Reload'),
+  'mode.set':id=>run(async()=>{MODE=id;try{localStorage.setItem('ssc-mode',id)}catch(e){}closeAll();S=null;await boot();show('api');toast(LIVE()?'Live · Supabase':'Local demo')},'Switch'),
+  reset:()=>{if(!confirm('Reset all demo data to the starting state?'))return;run(async()=>{if(LIVE())await api('/reset',{});else{try{localStorage.removeItem(KEY)}catch(e){}S=seed()}closeAll();await refresh();show('overview');toast('Demo reset')},'Reset')},
   phone:()=>{const on=document.body.classList.toggle('phoneview');if(on){const f=$('#phoneFrame');if(!f.src)f.src=location.href}window.scrollTo({top:0})},
-  'sim.call':()=>{newLead('call');renderAll()},
-  'sim.form':()=>{newLead('form');renderAll()},
-  'sim.rain':()=>{fireRain('post');show('rain')},
-  'sim.pay':()=>{const j=S.jobs.find(x=>x.stage===3);if(!j){toast('No job at "Scheduled" — advance one in Jobs first');return}advance(j.id,1);renderAll()},
+  'sim.call':()=>run(async()=>{if(LIVE())await newLeadLive('call');else newLeadLocal('call');await refresh()},'Missed call'),
+  'sim.form':()=>run(async()=>{if(LIVE())await newLeadLive('form');else newLeadLocal('form');await refresh()},'Web form'),
+  'sim.rain':()=>run(async()=>{if(LIVE()){const r=await api('/rain/check',{fire:'post'});toast(`${r.campaign.replied} replies · ${r.campaign.booked} booked`)}else fireRainLocal('post');await refresh();show('rain')},'Rain'),
+  'sim.pay':()=>run(async()=>{const j=S.jobs.find(x=>x.stage===3);if(!j){toast('No job at "Scheduled" — advance one in Jobs first');return}if(LIVE())await api(`/jobs/${j.id}/advance`,{dir:1});else advanceLocal(j.id,1);toast('Final payment received');await refresh()},'Payment'),
   'leads.filter':id=>{S.ui.leadFilter=id;renderAll()},
   'lead.open':id=>leadDrawer(id),
   'lead.add':()=>openSheet(`<header><h3>Add lead</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody form"><div><label class="fl" for="nlName">Name</label><input id="nlName" placeholder="First initial + last"></div><div><label class="fl" for="nlPhone">Phone</label><input id="nlPhone" placeholder="(225) 555-0100"></div><div><label class="fl" for="nlArea">Area</label><select id="nlArea">${AREAS.concat(['Baton Rouge']).map(a=>`<option>${a}</option>`).join('')}</select></div><div><label class="fl" for="nlType">Service</label><select id="nlType">${Object.entries(TYPES).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div><div class="full"><label class="fl" for="nlNeed">What they said</label><input id="nlNeed" placeholder="Back yard holds water for days"></div><div class="full"><label class="fl" for="nlSrc">Source</label><select id="nlSrc"><option>Phone</option><option>Referral</option><option>Walk-up on a job</option><option>Google</option><option>Facebook</option></select></div></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="lead.addconfirm">Add &amp; offer a slot</button></div>`),
-  'lead.addconfirm':()=>{const n=$('#nlName').value.trim()||'New lead';const id=uid();const slots=openSlots(2);S.leads.unshift({id,name:n,phone:$('#nlPhone').value||'—',area:$('#nlArea').value,addr:'',src:$('#nlSrc').value,type:$('#nlType').value,need:$('#nlNeed').value||TYPES[$('#nlType').value],status:'new',resp:0,created:iso(TODAY),slot:null,thread:[{who:'sys',t:nowT(),msg:`Hi ${n.split(' ')[0]}, Charlie here with Scag Scapes. Open estimate slots: ${slots.map(slotStr).join(' or ')}. Reply with one or book: scagscapes.com/book`}],notes:''});log('Lead added',n,'Manual entry. Slot offer sent by text.');closeAll();renderAll();leadDrawer(id)},
+  'lead.addconfirm':()=>run(async()=>{const n=$('#nlName').value.trim()||'New lead',phone=$('#nlPhone').value||'—',area=$('#nlArea').value,type=$('#nlType').value,need=$('#nlNeed').value||TYPES[type],src=$('#nlSrc').value;const slots=openSlots(2);const msg=`Hi ${n.split(' ')[0]}, Charlie here with Scag Scapes. Open estimate slots: ${slots.map(slotStr).join(' or ')}. Reply with one or book: scagscapes.com/book`;
+    if(LIVE()){const [l]=await ins('ss_leads',{name:n,phone,area,addr:'',source:src,service_type:type,need,status:'new',response_seconds:0});await ins('ss_messages',{lead_id:l.id,who:'sys',body:msg});await ins('ss_events',{kind:'Lead added',who:n,body:'Manual entry. Slot offer sent by text.'});closeAll();await refresh();leadDrawer(l.id)}
+    else{const id=uid();S.leads.unshift({id,name:n,phone,area,addr:'',src,type,need,status:'new',resp:0,created:iso(TODAY),slot:null,thread:[{who:'sys',t:now(),msg}],notes:''});log('Lead added',n,'Manual entry. Slot offer sent by text.');closeAll();renderAll();leadDrawer(id)}},'Add lead'),
   'lead.book':id=>moveSheet(id),
-  'lead.bookconfirm':id=>{const l=lead(id);const [date,time]=$('#mvSlot').value.split('|');S.bookings=S.bookings.filter(b=>b.leadId!==id||b.kind!=='est');l.slot={date,time};l.status='booked';S.bookings.push({date,time,kind:'est',label:'Estimate · '+l.name+' · '+l.need.toLowerCase(),leadId:id});l.thread.push({who:'sys',t:nowT(),msg:`Booked — ${slotStr(l.slot)} at ${l.addr||'your address'}. Reminder the night before. — Scag Scapes`});log('Estimate booked',l.name,slotStr(l.slot)+'. Confirmation sent.');closeAll();renderAll();toast('Booked · confirmation sent')},
-  'lead.quote':id=>{const l=lead(id);S.ui.qlead=id;S.ui.qtype=l.type;closeAll();show('quote')},
-  'lead.text':id=>{const l=lead(id);l.thread.push({who:'charlie',t:nowT(),msg:'Hey, Charlie here — checking in. Anything I can answer?'});log('Text sent',l.name,'Manual text from Charlie.');leadDrawer(id);save();toast('Sent')},
+  'lead.bookconfirm':id=>run(async()=>{const l=lead(id);const [date,time]=$('#mvSlot').value.split('|');const label='Estimate · '+l.name+' · '+l.need.toLowerCase();const msg=`Booked — ${dLabel(date)} ${time} at ${l.addr||'your address'}. Reminder the night before. — Scag Scapes`;
+    if(LIVE()){await del('ss_bookings',`lead_id=eq.${id}&kind=eq.est`);await ins('ss_bookings',{date,time,kind:'est',label,lead_id:id});await up('ss_leads',{slot_date:date,slot_time:time,status:l.status==='new'?'booked':l.status},`id=eq.${id}`);await ins('ss_messages',{lead_id:id,who:'sys',body:msg});await ins('ss_events',{kind:'Estimate booked',who:l.name,body:dLabel(date)+' '+time+'. Confirmation sent.'})}
+    else{S.bookings=S.bookings.filter(b=>b.leadId!==id||b.kind!=='est');l.slot={date,time};if(l.status==='new')l.status='booked';S.bookings.push({date,time,kind:'est',label,leadId:id});l.thread.push({who:'sys',t:now(),msg});log('Estimate booked',l.name,slotStr(l.slot)+'. Confirmation sent.')}
+    closeAll();await refresh();toast('Booked · confirmation sent')},'Book'),
+  'lead.quote':id=>{const l=lead(id);S.ui.qlead=id;if(TYPES[l.type])S.ui.qtype=l.type;closeAll();show('quote')},
+  'lead.text':id=>run(async()=>{const l=lead(id);const msg='Hey, Charlie here — checking in. Anything I can answer?';if(LIVE())await ins('ss_messages',{lead_id:id,who:'charlie',body:msg});else l.thread.push({who:'charlie',t:now(),msg});log('Text sent',l.name,'Manual text from Charlie.');await refresh();leadDrawer(id);toast('Sent')},'Text'),
   'lead.call':id=>toast('Dialing '+lead(id).phone+' (demo)'),
-  'lead.lost':id=>{const l=lead(id);l.status='lost';S.jobs=S.jobs.filter(j=>!(j.leadId===id&&j.stage===0));S.bookings=S.bookings.filter(b=>b.leadId!==id);log('Marked lost',l.name,'Follow-ups stopped. Re-engage list: spring.');closeAll();renderAll()},
-  'lead.reopen':id=>{const l=lead(id);l.status='new';log('Re-opened',l.name,'Back in the open list.');closeAll();renderAll()},
-  'lead.notes':(id,el)=>{lead(id).notes=el.value;save()},
-  'lead.simreply':id=>{const l=lead(id);const r=pick(['Can you do it next week?','What\'s the deposit again?','Does the price include hauling the dirt off?','My neighbor wants a quote too.']);l.thread.push({who:'cust',t:nowT(),msg:r});const a={'Can you do it next week?':`Yes — first open install day is ${dLabel(openInstall())}. Want me to hold it?`,'What\'s the deposit again?':`${S.settings.deposit}% to lock the date, balance when we're done and you're happy. Link: pay.scagscapes.com`,'Does the price include hauling the dirt off?':'It does — spoils hauled, trench line restored.','My neighbor wants a quote too.':'Love it — send me their number and I\'ll text them. $200 off your balance for the referral.'}[r];l.thread.push({who:'sys',t:nowT(),msg:a});log('Reply handled',l.name,`"${r}" → answered automatically. Charlie notified.`);leadDrawer(id);save()},
+  'lead.lost':id=>run(async()=>{const l=lead(id);if(LIVE()){await up('ss_leads',{status:'lost'},`id=eq.${id}`);await del('ss_jobs',`lead_id=eq.${id}&stage=eq.0`);await del('ss_bookings',`lead_id=eq.${id}&kind=eq.est`);await ins('ss_events',{kind:'Marked lost',who:l.name,body:'Follow-ups stopped. Re-engage list: spring.'})}else{l.status='lost';S.jobs=S.jobs.filter(j=>!(j.leadId===id&&j.stage===0));S.bookings=S.bookings.filter(b=>b.leadId!==id);log('Marked lost',l.name,'Follow-ups stopped. Re-engage list: spring.')}closeAll();await refresh()},'Mark lost'),
+  'lead.reopen':id=>run(async()=>{const l=lead(id);if(LIVE())await up('ss_leads',{status:'new'},`id=eq.${id}`);else l.status='new';log('Re-opened',l.name,'Back in the open list.');closeAll();await refresh()},'Re-open'),
+  'lead.notes':(id,el)=>{lead(id).notes=el.value;saveLocal();if(LIVE())debounce('notes'+id,()=>up('ss_leads',{notes:el.value},`id=eq.${id}`).catch(()=>toast('Notes not saved')))},
+  'lead.simreply':id=>run(async()=>{const l=lead(id);const text=($('#simReplyText')&&$('#simReplyText').value.trim())||pick(['yes','How much is the deposit?','Does the price include hauling the dirt off?','My neighbor wants a quote too.']);if(LIVE()){const r=await api('/webhooks/sms',{from:l.phone,body:text});toast('Intent: '+r.action)}else replyLocal(l,text);await refresh();leadDrawer(id)},'Reply'),
   'week.prev':()=>{S.ui.weekOff--;renderAll()},'week.next':()=>{S.ui.weekOff++;renderAll()},'week.today':()=>{S.ui.weekOff=0;renderAll()},
-  'slot.open':key=>slotDrawer(key),
-  'slot.book':key=>{const [d,t]=key.split('|');bookSheet(d,t)},
-  'slot.confirm':key=>{const [date,time]=key.split('|');const who=$('#bkLead').value,kind=$('#bkKind').value;let label=$('#bkNote').value.trim(),leadId=null;
-    if(who!=='__new'){const l=lead(who);leadId=l.id;if(!label)label=(kind==='job'?'Install · ':'Estimate · ')+l.name+' · '+l.need.toLowerCase();if(kind==='est'){l.slot={date,time};if(l.status==='new')l.status='booked'}l.thread.push({who:'sys',t:nowT(),msg:`Booked — ${dLabel(date)} ${time}. Reminder the night before. — Scag Scapes`})}
-    if(!label)label=kind==='held'?'Held for post-rain leads':kind==='job'?'Install day':'Estimate · new lead';
-    S.bookings.push({date,time,kind,label,leadId});log('Slot booked',label,dLabel(date)+' '+time+(leadId?' · confirmation sent':''));closeAll();renderAll();toast('Booked')},
-  'slot.text':key=>{const b=S.bookings.find(x=>x.date+'|'+x.time===key);if(b&&b.leadId)lead(b.leadId).thread.push({who:'charlie',t:nowT(),msg:'Running about 15 minutes behind — see you shortly. — Charlie'});log('Text sent',b?b.label:'',"\"Running 15 late\" sent.");toast('Sent');save()},
-  'slot.cancel':key=>{const b=S.bookings.find(x=>x.date+'|'+x.time===key);if(b&&b.leadId){const l=lead(b.leadId);l.slot=null;if(l.status==='booked')l.status='new'}S.bookings=S.bookings.filter(x=>x.date+'|'+x.time!==key);log('Slot cancelled',b?b.label:'','Slot reopened for self-booking.');closeAll();renderAll()},
+  'slot.open':key=>slotDrawer(key),'slot.book':key=>{const [d,t]=key.split('|');bookSheet(d,t)},
+  'slot.confirm':key=>run(async()=>{const [date,time]=key.split('|');const who=$('#bkLead').value,kind=$('#bkKind').value;let label=$('#bkNote').value.trim(),leadId=null,l=null;
+    if(who!=='__new'){l=lead(who);leadId=l.id;if(!label)label=(kind==='job'?'Install · ':'Estimate · ')+l.name+' · '+l.need.toLowerCase()}if(!label)label=kind==='held'?'Held for post-rain leads':kind==='job'?'Install day':'Estimate · new lead';
+    const msg=`Booked — ${dLabel(date)} ${time}. Reminder the night before. — Scag Scapes`;
+    if(LIVE()){await ins('ss_bookings',{date,time,kind,label,lead_id:leadId});if(l){if(kind==='est')await up('ss_leads',{slot_date:date,slot_time:time,status:l.status==='new'?'booked':l.status},`id=eq.${l.id}`);await ins('ss_messages',{lead_id:l.id,who:'sys',body:msg})}await ins('ss_events',{kind:'Slot booked',who:label,body:dLabel(date)+' '+time+(leadId?' · confirmation sent':'')})}
+    else{if(l){if(kind==='est'){l.slot={date,time};if(l.status==='new')l.status='booked'}l.thread.push({who:'sys',t:now(),msg})}S.bookings.push({date,time,kind,label,leadId});log('Slot booked',label,dLabel(date)+' '+time+(leadId?' · confirmation sent':''))}
+    closeAll();await refresh();toast('Booked')},'Book slot'),
+  'slot.text':key=>run(async()=>{const b=S.bookings.find(x=>x.date+'|'+x.time===key);const msg='Running about 15 minutes behind — see you shortly. — Charlie';if(b&&b.leadId){if(LIVE())await ins('ss_messages',{lead_id:b.leadId,who:'charlie',body:msg});else lead(b.leadId).thread.push({who:'charlie',t:now(),msg})}log('Text sent',b?b.label:'','"Running 15 late" sent.');toast('Sent');await refresh()},'Text'),
+  'slot.cancel':key=>run(async()=>{const b=S.bookings.find(x=>x.date+'|'+x.time===key);if(!b)return;if(LIVE()){await del('ss_bookings',`date=eq.${b.date}&time=eq.${encodeURIComponent(b.time)}`);if(b.leadId){const l=lead(b.leadId);await up('ss_leads',{slot_date:null,slot_time:null,status:l.status==='booked'?'new':l.status},`id=eq.${b.leadId}`)}}else{if(b.leadId){const l=lead(b.leadId);l.slot=null;if(l.status==='booked')l.status='new'}S.bookings=S.bookings.filter(x=>x!==b)}log('Slot cancelled',b.label,'Slot reopened for self-booking.');closeAll();await refresh()},'Cancel'),
   'quote.type':id=>{S.ui.qtype=id;renderAll()},
   'quote.lead':(id,el)=>{S.ui.qlead=el.value;const l=lead(el.value);if(l&&FIELDS[l.type])S.ui.qtype=l.type;renderAll()},
-  'quote.field':(id,el)=>{S.q[S.ui.qtype][id]=el.value;const t=S.ui.qtype,r=calc();$('#s-quote .quote-out .big').textContent=fmt(r.total);$('#s-quote .quote-out').innerHTML=`<div class="fl">Total${S.ui.qlead?' · '+esc(lead(S.ui.qlead).name):''}</div><div class="big mono">${fmt(r.total)}</div><div style="color:var(--ink3);font-size:12.5px;margin:2px 0 10px">${esc(r.summary)}</div>${r.rows.map(x=>`<div class="row"><span>${esc(x[0])}</span><span class="mono">${fmt(x[1])}</span></div>`).join('')}<div class="row"><span>Deposit due (${S.settings.deposit}%)</span><span class="mono" style="font-weight:600;color:var(--water)">${fmt(r.total*dep())}</span></div><div class="row"><span>Warranty</span><span>1-yr workmanship</span></div>`;$('#s-quote .bom').innerHTML=`<tr><th>Item</th><th>Qty</th><th>Supplier</th></tr>${r.bom.map(x=>`<tr><td>${esc(x[0])}</td><td class="mono">${esc(x[1])}</td><td style="color:var(--ink3)">${esc(x[2])}</td></tr>`).join('')}`;save()},
-  'quote.send':()=>{const l=lead(S.ui.qlead);if(!l)return;const r=calc();const j={id:uid(),leadId:l.id,name:l.name,type:S.ui.qtype,scope:r.summary,value:r.total,stage:0,hist:[iso(TODAY)],mats:[]};S.jobs.unshift(j);l.status='quoted';l.quoted=iso(TODAY);l.thread.push({who:'sys',t:nowT(),msg:`Your quote is ready: ${r.summary} — ${fmt(r.total)}. ${S.settings.warranty.split(' on ')[0]}. Deposit link (${S.settings.deposit}%): pay.scagscapes.com/q-${rnd(2200,2299)}`});log('Quote sent',l.name+' · '+l.area,`${r.summary} → ${fmt(r.total)}. Deposit link ${fmt(r.total*dep())}. Follow-ups scheduled day 2 · 5 · 12.`);S.ui.qlead='';toast('Quote + deposit link sent by text and email');show('jobs');setTimeout(()=>jobDrawer(j.id),150)},
-  'quote.pdf':()=>{const r=calc();openSheet(`<header><h3>Quote preview</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div style="border:1px solid var(--line);border-radius:4px;padding:18px;background:var(--panel)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><div style="font:700 22px 'Barlow Condensed'">SCAG SCAPES LLC</div><div style="font-size:12px;color:var(--ink3)">Baton Rouge, LA · 225-241-3069 · charlie@scagscapes.com</div></div><div class="pill soil">QUOTE</div></div><hr style="border:0;border-top:1px solid var(--line2);margin:12px 0"><div style="font-size:13px"><b>${S.ui.qlead?esc(lead(S.ui.qlead).name):'Customer'}</b> · ${dLabel(iso(TODAY))}</div><div style="font-size:13px;margin:6px 0 10px">${esc(r.summary)}${S.ui.qtype==='drain'?' · elevations per Moasure 3D survey (attached)':''}</div>${r.rows.map(x=>`<div class="row" style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px dashed var(--line2)"><span>${esc(x[0])}</span><span class="mono">${fmt(x[1])}</span></div>`).join('')}<div style="display:flex;justify-content:space-between;font:600 18px 'Barlow Condensed';margin-top:8px"><span>Total</span><span class="mono">${fmt(r.total)}</span></div><div style="font-size:12px;color:var(--ink2);margin-top:10px">${esc(S.settings.warranty)}. ${S.settings.deposit}% deposit locks your install date; balance on completion. Quote valid 30 days.</div></div></div><div class="sfoot"><button class="btn" data-act="close">Close</button></div>`)},
+  'quote.field':(id,el)=>{S.q[S.ui.qtype][id]=el.value;const r=calc();$('#s-quote .quote-out').innerHTML=quoteOutHTML(r,S.ui.qlead?lead(S.ui.qlead):null);$('#s-quote .bom').innerHTML=bomHTML(r);saveLocal()},
+  'quote.send':()=>run(async()=>{const l=lead(S.ui.qlead);if(!l)return;const t=S.ui.qtype,r=calc();let jid;
+    if(LIVE()){const res=await api('/quote',{lead_id:l.id,service_type:t,inputs:S.q[t],send:true});jid=res.job_id}
+    else{jid=uid();S.quotes.unshift({id:'q'+jid,leadId:l.id,type:t,inputs:{...S.q[t]},lines:r.rows,bom:r.bom,summary:r.summary,total:r.total,cost:r.cost,status:'sent',t:now()});S.jobs.unshift({id:jid,leadId:l.id,quoteId:'q'+jid,name:l.name,type:t,scope:r.summary,value:r.total,cost:r.cost,hours:r.hours,stage:0,hist:[iso(TODAY)],mats:[]});l.status='quoted';l.thread.push({who:'sys',t:now(),msg:`Your quote is ready: ${r.summary} — ${fmt(r.total)}. ${S.settings.warranty.split(' on ')[0]}. Deposit link (${S.settings.deposit}%): pay.scagscapes.com/q-${rnd(2200,2299)}`});log('Quote sent',l.name+' · '+l.area,`${r.summary} → ${fmt(r.total)}. Deposit link ${fmt(r.total*dep())}. Follow-ups scheduled day 2 · 5 · 12.`)}
+    S.ui.qlead='';toast('Quote + deposit link sent by text and email');await refresh();show('jobs');setTimeout(()=>jobDrawer(jid),150)},'Send quote'),
+  'quote.pdf':()=>{const r=calc();const l=S.ui.qlead?lead(S.ui.qlead):null;openSheet(`<header><h3>Quote preview</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div style="border:1px solid var(--line);border-radius:4px;padding:18px;background:var(--panel)"><div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px"><div><div style="font:700 22px 'Barlow Condensed'">SCAG SCAPES LLC</div><div style="font-size:12px;color:var(--ink3)">Baton Rouge, LA · 225-241-3069 · charlie@scagscapes.com · LA licensed</div></div><div class="pill soil">QUOTE</div></div><hr style="border:0;border-top:1px solid var(--line2);margin:12px 0"><div style="font-size:13px"><b>${l?esc(l.name):'Customer'}</b>${l&&l.addr?' · '+esc(l.addr):''} · ${dLabel(iso(TODAY))}</div><div style="font-size:13px;margin:6px 0 10px">${esc(r.summary)}${S.ui.qtype==='drain'?' · elevations per Moasure 3D survey (attached) · designed fall ≥ 1%':''}</div>${r.rows.map(x=>`<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px dashed var(--line2)"><span>${esc(x[0])}</span><span class="mono">${fmt(x[1])}</span></div>`).join('')}<div style="display:flex;justify-content:space-between;font:600 18px 'Barlow Condensed';margin-top:8px"><span>Total</span><span class="mono">${fmt(r.total)}</span></div><div style="font-size:12px;color:var(--ink2);margin-top:10px">${esc(S.settings.warranty)}. ${S.settings.deposit}% deposit locks your install date; balance on completion. Quote valid 30 days. Spoils hauled; trench line restored.</div></div></div><div class="sfoot"><button class="btn" data-act="close">Close</button></div>`)},
   'jobs.filter':id=>{S.ui.jobFilter=id;renderAll()},
   'job.open':id=>jobDrawer(id),
-  'job.adv':id=>{advance(id,1);renderAll();if($('#drawer').classList.contains('on'))jobDrawer(id)},
-  'job.back':id=>{advance(id,-1);renderAll();if($('#drawer').classList.contains('on'))jobDrawer(id)},
-  'job.text':id=>{const j=job(id);const m=['Quote\'s in your texts — holler with questions.','Materials are ordered; we\'re on for '+(j.install?dLabel(j.install):'the scheduled day')+'.','Everything\'s on site. See you in the morning.','We\'re rolling out — on the way now.','All done! Final invoice is in your texts. Thank you.'][j.stage];if(j.leadId)lead(j.leadId).thread.push({who:'charlie',t:nowT(),msg:m});log('Text sent',j.name,m);toast('Sent');save()},
+  'job.adv':id=>run(async()=>{if(LIVE()){const j=await api(`/jobs/${id}/advance`,{dir:1});toast(`${j.name} → ${STAGES[j.stage]}`)}else advanceLocal(id,1);await refresh();if($('#drawer').classList.contains('on'))jobDrawer(id)},'Advance'),
+  'job.back':id=>run(async()=>{if(LIVE()){const j=await api(`/jobs/${id}/advance`,{dir:-1});toast(`${j.name} ← ${STAGES[j.stage]}`)}else advanceLocal(id,-1);await refresh();if($('#drawer').classList.contains('on'))jobDrawer(id)},'Step back'),
+  'job.text':id=>run(async()=>{const j=job(id);const m=['Quote\'s in your texts — holler with questions.','Materials are ordered; we\'re on for '+(j.install?dLabel(j.install):'the scheduled day')+'.','Everything\'s on site. See you in the morning.','We\'re rolling out — on the way now.','All done! Final invoice is in your texts. Thank you.'][j.stage];if(j.leadId){if(LIVE())await ins('ss_messages',{lead_id:j.leadId,who:'charlie',body:m});else lead(j.leadId).thread.push({who:'charlie',t:now(),msg:m})}log('Text sent',j.name,m);toast('Sent');await refresh()},'Text'),
   'job.sched':id=>{const j=job(id);const days=[];for(let i=1;i<21;i++){const d=addD(TODAY,i);if(d.getDay()===0)continue;const ds=iso(d);if(!S.bookings.some(b=>b.date===ds&&b.kind==='job'&&b.jobId!==id))days.push(ds)}openSheet(`<header><h3>Install day · ${esc(j.name)}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><select id="instDay">${days.map(d=>`<option value="${d}" ${d===j.install?'selected':''}>${dLabel(d)}</option>`).join('')}</select><p style="font-size:13px;color:var(--ink2);margin:0">Blocks 9:00–3:00, texts the customer, matches supplier delivery.</p></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="job.schedconfirm" data-id="${id}">Confirm</button></div>`)},
-  'job.schedconfirm':id=>{const j=job(id);const d=$('#instDay').value;S.bookings=S.bookings.filter(b=>b.jobId!==id);j.install=d;S.bookings.push({date:d,time:'9:00–3:00',kind:'job',label:'Install · '+j.name+' · '+j.scope,jobId:id});if(j.leadId)lead(j.leadId).thread.push({who:'sys',t:nowT(),msg:`Install confirmed for ${dLabel(d)}. Crew arrives ~9:00. — Scag Scapes`});log('Install scheduled',j.name,dLabel(d)+'. Customer texted, deliveries matched.');closeAll();renderAll();jobDrawer(id)},
+  'job.schedconfirm':id=>run(async()=>{const j=job(id);const d=$('#instDay').value;const label='Install · '+j.name+' · '+j.scope;const msg=`Install confirmed for ${dLabel(d)}. Crew arrives ~9:00. — Scag Scapes`;
+    if(LIVE()){await del('ss_bookings',`job_id=eq.${id}`);await ins('ss_bookings',{date:d,time:'9:00–3:00',kind:'job',label,job_id:id,lead_id:j.leadId});await up('ss_jobs',{install_date:d},`id=eq.${id}`);if(j.leadId)await ins('ss_messages',{lead_id:j.leadId,who:'sys',body:msg});await ins('ss_events',{kind:'Install scheduled',who:j.name,body:dLabel(d)+'. Customer texted, deliveries matched.'})}
+    else{S.bookings=S.bookings.filter(b=>b.jobId!==id);j.install=d;S.bookings.push({date:d,time:'9:00–3:00',kind:'job',label,jobId:id});if(j.leadId)lead(j.leadId).thread.push({who:'sys',t:now(),msg});log('Install scheduled',j.name,dLabel(d)+'. Customer texted, deliveries matched.')}
+    closeAll();await refresh();jobDrawer(id)},'Schedule'),
   'inv.open':id=>invDrawer(id),
-  'inv.pay':id=>{advance(id,1);renderAll();invDrawer(id)},
-  'inv.remind':id=>{const j=job(id);if(j.leadId)lead(j.leadId).thread.push({who:'sys',t:nowT(),msg:`Final invoice for ${j.scope}: ${fmt(j.value*(1-dep()))}. Pay by card or ACH: pay.scagscapes.com/i-${rnd(1100,1199)}`});log('Pay link sent',j.name,fmt(j.value*(1-dep()))+' balance.');toast('Pay link sent');save()},
-  'inv.receipt':id=>{toast('Receipt re-sent (demo)')},
-  'inv.nudge':id=>{const j=job(id);if(j.leadId)lead(j.leadId).thread.push({who:'sys',t:nowT(),msg:S.settings.tpl.d12});log('Nudge sent',j.name,'Manual follow-up on open quote.');toast('Sent');renderAll()},
+  'inv.pay':id=>run(async()=>{if(LIVE())await api('/payments/webhook',{job_id:id,kind:'balance'});else advanceLocal(id,1);await refresh();invDrawer(id)},'Payment'),
+  'inv.remind':id=>run(async()=>{const j=job(id);const msg=`Final invoice for ${j.scope}: ${fmt(j.value*(1-dep()))}. Pay by card or ACH: pay.scagscapes.com/i-${rnd(1100,1199)}`;if(j.leadId){if(LIVE())await ins('ss_messages',{lead_id:j.leadId,who:'sys',body:msg});else lead(j.leadId).thread.push({who:'sys',t:now(),msg})}log('Pay link sent',j.name,fmt(j.value*(1-dep()))+' balance.');toast('Pay link sent');await refresh()},'Pay link'),
+  'inv.receipt':()=>toast('Receipt re-sent (demo)'),
+  'inv.nudge':id=>run(async()=>{const j=job(id);if(j.leadId){if(LIVE())await ins('ss_messages',{lead_id:j.leadId,who:'sys',body:S.settings.tpl.d12});else lead(j.leadId).thread.push({who:'sys',t:now(),msg:S.settings.tpl.d12})}log('Nudge sent',j.name,'Manual follow-up on open quote.');toast('Sent');await refresh()},'Nudge'),
   'review.reply':id=>{const r=S.reviews.find(x=>x.id===id);openSheet(`<header><h3>Reply to ${esc(r.who)}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div class="review" style="border:0;padding:0"><div class="stars">${'★'.repeat(r.stars)}</div>${esc(r.text)}</div><textarea id="revText" placeholder="Thank them by name, mention the job…"></textarea></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="review.save" data-id="${id}">Post reply</button></div>`)},
-  'review.auto':id=>{const r=S.reviews.find(x=>x.id===id);r.reply=`Thank you, ${r.who.split(' ·')[0]} — ${r.stars===5?'that yard was a good one. Call anytime.':'appreciate the honesty on the timing; rain\'s the one thing we can\'t schedule. Glad it\'s draining.'}`;log('Review reply posted',r.who,'Auto-drafted, Charlie\'s voice.');renderAll();toast('Reply posted')},
-  'review.save':id=>{const r=S.reviews.find(x=>x.id===id);r.reply=$('#revText').value.trim()||'Thank you!';log('Review reply posted',r.who,'Manual reply.');closeAll();renderAll()},
-  'rain.set':(id,el)=>{S.forecast[+id]=+el.value;el.nextElementSibling.textContent=(+el.value).toFixed(1)+'"';const th=S.settings.threshold;$$('#s-rain .bars i').forEach((b,i)=>{b.style.height=Math.max(3,S.forecast[i]/4*100)+'%';b.classList.toggle('hot',S.forecast[i]>=th)});save()},
-  'rain.th':(id,el)=>{S.settings.threshold=+el.value||1.5;renderAll()},
-  'rain.fire':id=>{fireRain(id);renderAll()},
-  'auto.toggle':id=>{S.settings.auto[id]=!S.settings.auto[id];log(S.settings.auto[id]?'Automation on':'Automation off',AUTOS.find(a=>a[0]===id)[1],'');renderAll()},
-  'set.deposit':(id,el)=>{S.settings.deposit=Math.max(0,Math.min(100,+el.value||0));save();renderKpis()},
-  'set.threshold':(id,el)=>{S.settings.threshold=+el.value||1.5;save()},
-  'set.hours':(id,el)=>{S.settings.hours=el.value;save()},
-  'set.notify':(id,el)=>{S.settings.notify=el.value;save()},
-  'set.warranty':(id,el)=>{S.settings.warranty=el.value;save()},
+  'review.auto':id=>run(async()=>{const r=S.reviews.find(x=>x.id===id);const reply=`Thank you, ${r.who.split(' ·')[0]} — ${r.stars===5?'that yard was a good one. Call anytime.':'appreciate the honesty on the timing; rain\'s the one thing we can\'t schedule. Glad it\'s draining.'}`;if(LIVE())await up('ss_reviews',{reply},`id=eq.${id}`);else r.reply=reply;log('Review reply posted',r.who,'Auto-drafted, Charlie\'s voice.');await refresh();toast('Reply posted')},'Reply'),
+  'review.save':id=>run(async()=>{const r=S.reviews.find(x=>x.id===id);const reply=$('#revText').value.trim()||'Thank you!';if(LIVE())await up('ss_reviews',{reply},`id=eq.${id}`);else r.reply=reply;log('Review reply posted',r.who,'Manual reply.');closeAll();await refresh()},'Reply'),
+  'rain.set':(id,el)=>{S.forecast[+id]=+el.value;el.nextElementSibling.textContent=(+el.value).toFixed(1)+'"';const th=S.settings.threshold;$$('#s-rain .bars i').forEach((b,i)=>{b.style.height=Math.max(3,S.forecast[i]/4*100)+'%';b.classList.toggle('hot',S.forecast[i]>=th)});saveLocal();if(LIVE())debounce('fc',()=>upsert('ss_forecast',S.forecast.map((v,i)=>({tenant_id:CFG.tenant,day_offset:i,inches:v}))).catch(()=>toast('Forecast not saved')))},
+  'rain.th':(id,el)=>{S.settings.threshold=+el.value||1.5;if(LIVE())saveSettings();renderAll()},
+  'rain.fire':id=>run(async()=>{if(LIVE()){const r=await api('/rain/check',{fire:id});toast(`${r.campaign.replied} replies · ${r.campaign.booked} booked`)}else fireRainLocal(id);await refresh()},'Campaign'),
+  'auto.toggle':id=>run(async()=>{S.settings.auto[id]=!S.settings.auto[id];if(LIVE())await up('ss_automations',{enabled:S.settings.auto[id]},`tenant_id=eq.${CFG.tenant}&key=eq.${id}`);log(S.settings.auto[id]?'Automation on':'Automation off',(AUTOS.find(a=>a[0]===id)||[])[1]||id,'');renderAll()},'Toggle'),
+  'set.deposit':(id,el)=>{S.settings.deposit=Math.max(0,Math.min(100,+el.value||0));saveLocal();renderKpis()},
+  'set.threshold':(id,el)=>{S.settings.threshold=+el.value||1.5;saveLocal()},
+  'set.hours':(id,el)=>{S.settings.hours=el.value;saveLocal()},'set.notify':(id,el)=>{S.settings.notify=el.value;saveLocal()},'set.warranty':(id,el)=>{S.settings.warranty=el.value;saveLocal()},
+  'set.save':()=>run(async()=>{if(LIVE())await saveSettings();toast('Settings saved')},'Save'),
   'tpl.edit':id=>tplSheet(id),
-  'tpl.save':id=>{S.settings.tpl[id]=$('#tplText').value;log('Template updated',TPLS.find(t=>t[0]===id)[1],'');closeAll();renderAll();toast('Saved')},
+  'tpl.save':id=>run(async()=>{const v=$('#tplText').value;S.settings.tpl[id]=v;if(LIVE())await up('ss_automations',{template:v},`tenant_id=eq.${CFG.tenant}&key=eq.${id}`);log('Template updated',(TPLS.find(t=>t[0]===id)||[])[1]||id,'');closeAll();renderAll();toast('Saved')},'Save'),
+  'edge.open':id=>edgeDrawer(+id),
+  'api.try':id=>apiTrySheet(+id),
+  'api.send':id=>run(async()=>{const e=API_DOCS[+id];const out=$('#apiOut');out.textContent='…';let body=null;if(e[3]){try{body=JSON.parse($('#apiBody').value)}catch(err){out.textContent='Invalid JSON: '+err.message;return}}const t0=performance.now();try{const r=await fetch(CFG.url+CFG.fn+e[1],{method:e[0],headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant},body:body?JSON.stringify(body):undefined});const j=await r.json();out.textContent=`HTTP ${r.status} · ${Math.round(performance.now()-t0)} ms\n`+JSON.stringify(j,null,2)}catch(err){out.textContent='Error: '+err.message}if(LIVE()&&e[0]==='POST')await refresh()},'API'),
 };
+async function saveSettings(){const s=S.settings;await up('ss_tenants',{settings:{deposit_pct:s.deposit,rain_threshold_in:s.threshold,hours:s.hours,notify:s.notify,warranty:s.warranty,owner:'Charlie Mascagni',city:'Baton Rouge, LA'}},`id=eq.${CFG.tenant}`)}
+
 document.addEventListener('click',e=>{const el=e.target.closest('[data-act]');if(!el)return;if(el.matches('input,select,textarea'))return;const fn=A[el.dataset.act];if(fn){e.preventDefault();fn(el.dataset.id,el)}});
 document.addEventListener('input',e=>{const el=e.target.closest('[data-act]');if(!el)return;const fn=A[el.dataset.act];if(fn&&['quote.field','lead.notes','rain.set','set.deposit','set.threshold','set.hours','set.notify','set.warranty'].includes(el.dataset.act))fn(el.dataset.id,el)});
 document.addEventListener('change',e=>{const el=e.target.closest('[data-act]');if(!el)return;if(['quote.lead','rain.th'].includes(el.dataset.act))A[el.dataset.act](el.dataset.id,el);if(el.dataset.act==='quote.field'&&el.tagName==='SELECT')A['quote.field'](el.dataset.id,el)});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAll();if(e.key==='Enter'&&e.target.classList.contains('card'))A['job.open'](e.target.dataset.id)});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeAll();if(e.key==='Enter'&&e.target.classList&&e.target.classList.contains('card'))A['job.open'](e.target.dataset.id);if(e.key==='Enter'&&e.target.id==='simReplyText'){const b=e.target.parentElement.querySelector('[data-act="lead.simreply"]');b&&b.click()}});
 if(INFRAME){$$('.phonebtn').forEach(b=>b.hidden=true)}
-show(S.ui.sec||'overview');
+boot().then(()=>show(S.ui.sec||'overview'));
 })();
+
 </script>
 <script>
 if('serviceWorker' in navigator&&location.protocol==='https:'){window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}))}

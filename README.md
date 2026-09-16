@@ -16,8 +16,12 @@ npx serve .
 
 Vercel project `bridgebox-scagscapes` (team Pearson Projects) is linked to `main`. Push to deploy.
 
+## Backend
+
+Live mode reads/writes Supabase (`supabase/` folder: schema notes + the `ss-api` Edge Function). The app falls back to local sample data if the backend is unreachable; switch modes on the **API & data** page.
+
 ## Notes
 
 - All data is sample data, held in `localStorage` per device. **Reset demo data** in the sidebar restores the seed.
-- No backend, no secrets. Any future integrations (Twilio, NWS API, Stripe, QuickBooks) take env vars — see `.env.example`.
+- The only key shipped in the page is the Supabase publishable key; RLS confines it to the `demo` tenant. Twilio / NWS / Stripe / QuickBooks keys live in Supabase secrets, never in the repo — see `.env.example`.
 - `sw.js` caches the app for offline / home-screen use.
