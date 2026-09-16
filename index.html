@@ -857,17 +857,6 @@ function renderGrowth(){
     <div class="panel gap-t"><header><h3>Loss intelligence</h3><span class="hint">The real moat comes from why actual buyers chose someone else</span></header><div class="tbl-wrap"><table><thead><tr><th>Competitor type</th><th>Value lost</th><th>Reason</th><th>Required counterplay</th></tr></thead><tbody>${S.intel.losses.map(l=>`<tr><td><b>${esc(l.competitor)}</b></td><td class="mono">${fmt(l.value)}</td><td>${esc(l.reason)}</td><td>${esc(l.lesson)}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 
-/* ---------- Automations ---------- */
-const AUTOS=[['textback','Missed-call text-back','Any unanswered call gets a text within 60 seconds.'],['formreply','Web-form auto-reply','Instant text + email with the next two open slots.'],['followup','Quote follow-ups · day 2 / 5 / 12','Runs until the deposit lands or the lead is marked lost.'],['rainpre','Pre-rain campaign','Day before a ≥ threshold rain: open quotes.'],['rainpost','Post-rain campaign','Morning after: every past lead and customer.'],['po','Auto purchase orders','Deposit paid → BOM → POs to Ferguson / Southern Aggregates / Site One.'],['reminder','Appointment reminders','6:00 PM night-before text; "on the way" text.'],['invoice','Auto invoicing','Deposit link on acceptance; balance link on completion.'],['review','Review ask · +24h','One text with the direct Google review link.'],['check30','30-day check-in','"How\'s it draining?" — repeat-work opener.'],['warranty11','Warranty walk · +11 mo','Free walk-through offer + $200 referral.']];
-const TPLS=[['textback','Missed-call text-back'],['formreply','Web-form auto-reply'],['d2','Follow-up · day 2'],['d5','Follow-up · day 5'],['d12','Follow-up · day 12'],['rainpre','Pre-rain'],['rainpost','Post-rain'],['review','Review ask'],['check30','30-day check-in'],['warranty11','Warranty walk']];
-function renderAutomations(){
-  const s=S.settings;
-  $('#s-automations').innerHTML=`
-  <div class="grid g2">
-    <div class="panel"><header><h3>Automations</h3><span class="hint">${Object.values(s.auto).filter(Boolean).length} of ${AUTOS.length} on</span></header>
-      <div class="body">${AUTOS.map(a=>`<div class="toggle"><div><div class="tt">${a[1]}</div><div class="td">${a[2]}</div></div><button class="sw ${s.auto[a[0]]?'on':''}" role="switch" aria-checked="${!!s.auto[a[0]]}" aria-label="${a[1]}" data-act="auto.toggle" data-id="${a[0]}"></button></div>`).join('')}</div></div>
-    <div class="grid" style="align-content:start">
-
 /* ---------- Reports ---------- */
 function renderReports(){
   const L=S.leads;const tot=L.length,booked=L.filter(l=>['booked','quoted','won'].includes(l.status)).length,quoted=L.filter(l=>['quoted','won'].includes(l.status)).length+L.filter(l=>l.status==='lost').length,won=L.filter(l=>l.status==='won').length;
