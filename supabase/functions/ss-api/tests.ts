@@ -23,3 +23,36 @@ Deno.test("readiness: a missing critical item is red regardless of percentage", 
 Deno.test("loaded labor: wage → loaded → billing → customer rate is monotonic", () => { const l = loaded({ wage: 20, burden_pct: 32, overhead_pct: 18, target_margin_pct: 40 }); assertAlmostEquals(l.loaded, 26.4, .01); assert(l.internal_billing > l.loaded && l.customer_rate > l.internal_billing); });
 Deno.test("estimate: discount shows exact margin impact", () => { const job = { value: 6200, labor_hours: 14, material_cost: 1090, service_type: "drain" }; const rates = [{ role: "Crew lead", wage: 26, burden_pct: 32 }, { role: "Laborer", wage: 19, burden_pct: 32 }]; const a = estimateBreakdown(job, rates, 224, {}); const b = estimateBreakdown(job, rates, 224, { discount_pct: 10 }); assertEquals(b.discount, 620); assert(b.gross_margin_pct < a.gross_margin_pct); assertEquals(b.margin_without_discount_pct, a.gross_margin_pct); assert(estimateBreakdown(job, rates, 224, { tier: "best" }).revenue > a.revenue); });
 Deno.test("status vocabulary is the required set", () => { assertEquals(Object.values(STATUS).sort(), ["CALL_TO_CONFIRM", "CONNECTION_ERROR", "ESTIMATED", "LIVE_VERIFIED", "PROVIDER_POSTED", "STALE", "UNAVAILABLE"]); });
+
+// ---- resources (v1.4) ----
+const { evidence, staleness, openNow, intent, rank, performance } = await import("./resources.ts");
+Deno.test("evidence: expires by status class and goes STALE, never silently current", () => {
+  const live = evidence({ status: "LIVE_VERIFIED", source: "x", method: "m", checked_at: new Date(Date.now() - 5 * 3600e3).toISOString() });
+  assertEquals(staleness(live), "STALE");
+  const posted = evidence({ status: "PROVIDER_POSTED", source: "x", method: "m" }); assertEquals(staleness(posted), "PROVIDER_POSTED");
+  const err = evidence({ status: "CONNECTION_ERROR", source: "x", method: "m" }); assertEquals(staleness(err), "CONNECTION_ERROR"); assertEquals(err.human_confirmed, false);
+});
+Deno.test("openNow: parses weekday ranges, returns null when unparseable", () => {
+  const tue10 = new Date(Date.UTC(2026, 8, 15, 15, 0)); // Tue 10:00 CDT
+  assertEquals(openNow("Mon-Fri 7am-5pm", tue10), true);
+  assertEquals(openNow("Sat 8am-12pm", tue10), false);
+  assertEquals(openNow("24/7", tue10), true);
+  assertEquals(openNow("by appointment", tue10), null);
+});
+Deno.test("intent: routes queries to the right provider set", () => {
+  assertEquals(intent("Mini excavator rental near Port Allen available today"), "rental");
+  assertEquals(intent("Mobile hydraulic hose repair near this job"), "repair");
+  assertEquals(intent("Three-inch schedule 40 PVC within 15 miles"), "material");
+  assertEquals(intent("Everything missing for tomorrow's Johnson drainage job"), "job_missing");
+});
+Deno.test("rank: connection errors never outrank verified rows; cheapest sorts by total", () => {
+  const mk = (title: string, status: string, conf: number, dist: number, total: number | null): any => ({ kind: "rental", title, method: "CALL_NOW", provider: "t", distance_mi: dist, total, open_now: true, evidence: evidence({ status, source: "s", method: "m", confidence: conf }) });
+  const rows = [mk("err", "CONNECTION_ERROR", 0, 1, null), mk("posted", "PROVIDER_POSTED", .8, 12, 400), mk("call", "CALL_TO_CONFIRM", .4, 3, 250)];
+  const r = rank(rows.slice(), "recommended"); assertEquals(r[r.length - 1].title, "err");
+  const c = rank(rows.slice(), "cheapest"); assertEquals(c[0].title, "call");
+});
+Deno.test("performance: small samples are flagged insufficient; fill rate and quote accuracy computed", () => {
+  const p = performance([{ status: "confirmed" }, { status: "requested" }, { status: "cancelled" }, { status: "confirmed" }], [{ cost: { direct: 400 }, call_outcome: { quoted_price: 440, confirmed_at: new Date().toISOString() }, created_at: new Date(Date.now() - 30 * 60000).toISOString() }], [{ on_time: true, rating: 5 }]);
+  assertEquals(p.insufficient, false); assertEquals(p.fill_rate, 50); assertEquals(p.cancellation_rate, 25); assertEquals(p.quote_accuracy_pct, 90); assertEquals(p.on_time_pct, 100); assertEquals(p.rating, 5);
+  assertEquals(performance([], [], []).insufficient, true);
+});

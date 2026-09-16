@@ -29,3 +29,7 @@ Refresh rate cards/material prices: re-run the research checklist in `supabase/m
 Every price/availability carries one of: `LIVE_VERIFIED` (human-confirmed via call outcome), `PROVIDER_POSTED` (read from the provider's own endpoint), `CALL_TO_CONFIRM`, `ESTIMATED` (rate card), `UNAVAILABLE`, `STALE`, `CONNECTION_ERROR`.
 
 Tests: `deno test functions/ss-api/tests.ts` (pure functions, no network).
+
+## Resources module (v1.4)
+
+`functions/ss-api/resources.ts` — provider-adapter interface (`Provider.search / createReservation / createDeepLink / getCallInstructions` + honest `caps`), universal search (`/resources/search`) fanning out to internal records, the verified vendor directory, Home Depot live, chain rate cards, Rokrunner and OpenStreetMap, each result carrying an `evidence` block; vendor performance from Scag's own history; rental lifecycle; private breakdown media (bucket `breakdown-media`, signed URLs); web push; BLS market benchmarks; equipment own-vs-rent rates. Migrations: `migrations/scagscapes_field_ops_2.sql`.

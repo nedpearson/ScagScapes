@@ -1,13 +1,13 @@
 // ---------- field ops: equipment registry · breakdowns · recovery options · requirements/readiness · pricing · estimates · approvals · audit ----------
 // Reality standard: every external figure carries a verification status. Nothing here is presented as LIVE_VERIFIED unless a provider-approved
 // API confirmed it; Home Depot's undocumented endpoint is PROVIDER_POSTED; rate cards are ESTIMATED; chains are CALL_TO_CONFIRM.
-import { sb, json, fmt, event, dLabel, iso, addD, price, TYPES } from "./core.ts";
+import { sb, json, fmt, event, dLabel, iso, addD, price, TYPES, STATUS, pushAll } from "./core.ts";
+export { STATUS };
 import { miles, hdRental, rentalTotal } from "./sourcing.ts";
 
-export const STATUS = { LIVE: "LIVE_VERIFIED", POSTED: "PROVIDER_POSTED", CALL: "CALL_TO_CONFIRM", EST: "ESTIMATED", NA: "UNAVAILABLE", STALE: "STALE", ERR: "CONNECTION_ERROR" } as const;
 const SHOP = { lat: 30.4515, lng: -91.1871 };
 async function audit(t: string, actor: string, action: string, ref_type: string, ref_id: string | null, before: any, after: any) { await sb.from("ss_audit").insert({ tenant_id: t, actor, action, ref_type, ref_id, before, after }); }
-async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); }
+async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); pushAll(t, title, body, ref).catch(() => {}); }
 const num = (v: any, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 
 // ---------- rule-assisted diagnosis (NOT vision AI — labeled as such in the output) ----------

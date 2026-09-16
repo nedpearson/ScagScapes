@@ -1,13 +1,13 @@
 // ---------- sourcing: rentals · materials · fuel · research · notifications ----------
 // Live sources: Home Depot rental pricing/inventory (undocumented apionline endpoint, no auth), AAA state/metro fuel page (static HTML),
 // Rokrunner Shopify products.json, OpenStreetMap Overpass/Nominatim. Everything else is a verified-on-date rate card or a flagged estimate.
-import { sb, json, fmt, event, dLabel, send, integrations } from "./core.ts";
+import { sb, json, fmt, event, dLabel, send, integrations, pushAll } from "./core.ts";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36";
 const HD_STORES = "0357,0375";
 export const miles = (a: number, b: number, c: number, d: number) => { const R = 3958.8, dLat = (c - a) * Math.PI / 180, dLon = (d - b) * Math.PI / 180; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a * Math.PI / 180) * Math.cos(c * Math.PI / 180) * Math.sin(dLon / 2) ** 2; return Math.round(R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)) * 10) / 10; };
 const BR = { lat: 30.4515, lng: -91.1871 };
 async function fetchT(url: string, opts: RequestInit = {}, ms = 12000) { const c = new AbortController(); const id = setTimeout(() => c.abort(), ms); try { return await fetch(url, { ...opts, signal: c.signal, headers: { "user-agent": UA, ...(opts.headers || {}) } }); } finally { clearTimeout(id); } }
-async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); }
+async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); pushAll(t, title, body, ref).catch(() => {}); }
 
 // ---- Home Depot live rental pricing + inventory ----
 export async function hdRental(cat: string, sub: string) {

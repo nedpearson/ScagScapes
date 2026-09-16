@@ -1,6 +1,6 @@
 # Field Resource, Equipment Recovery, Job Readiness & Estimating — implementation report
 
-Branch `feature/field-ops` · edge function `ss-api` v1.3.0 · migration `scagscapes_field_ops` · app cache `scagscapes-v6`
+Branch `feature/field-ops` · edge function `ss-api` **v1.4.0** · migrations `scagscapes_field_ops`, `scagscapes_field_ops_2`, `scagscapes_reservation_status_lifecycle` · app cache `scagscapes-v7`
 
 ## 1. Audit of what existed before this branch
 
@@ -36,6 +36,17 @@ Nothing that existed was removed. All earlier pages, routes and migrations still
 | Notifications | Yes | `ss_notifications` + bell; breakdown filed, approval requested/decided, outcome recorded, readiness red | — | Smoke | Push/SMS only when Twilio is configured. |
 | Verification statuses | Yes | `LIVE_VERIFIED`, `PROVIDER_POSTED`, `CALL_TO_CONFIRM`, `ESTIMATED`, `UNAVAILABLE`, `STALE`, `CONNECTION_ERROR` on every price/availability field | — | Deno | — |
 
+| Universal resource search (`/resources/search`) | Yes | Provider adapters run in parallel: internal (equipment, inventory, prior rentals), vendor directory (17 verified), Home Depot live, chain rate cards, Rokrunner live, OpenStreetMap places | Each adapter fails independently → `CONNECTION_ERROR` row, never a made-up price | Deno: tokens/intent/rank/evidence; Playwright: header search → 31 rows, sort, call package | Nominatim bounded search is community data (flagged `CALL_TO_CONFIRM`, confidence .3). Straight-line miles. |
+| Provider adapter interface | Yes | `Provider { search, createReservation?, createDeepLink?, getCallInstructions? }` + `caps` (search/availability/quote/hold/reserve/book/deeplink/call); `GET /resources/providers` reports what each can really do | Unsupported reserve → `{supported:false, fallback: DEEP_LINK | CALL_NOW | QUOTE_REQUEST}` | Deno; smoke | No provider in Baton Rouge exposes a reservation/booking API to a small contractor; all reservations end in a deep link, a texted quote request, or a call + recorded confirmation. |
+| Source evidence on every result | Yes | `evidence{status, source, url, checked_at, method, location, price_type, availability_type, expires_at, confidence, human_confirmed, confirmed_by, notes, ref_no}`; TTL by status (LIVE 4 h, POSTED 24 h, else 30 d) → `STALE` | — | Deno: staleness | — |
+| Open-now | Yes | Parsed from vendor `hours` strings (CDT) or OSM `opening_hours`; `null` when unparseable | — | Deno | No holiday calendar. |
+| Vendor directory + performance | Yes | `GET /vendors`, `/vendors/:id`, `POST /vendors/:id/feedback`; fill rate, cancellation rate, quote accuracy (quoted vs estimated), response time, on-time %, rating — from Scag's own reservations, call outcomes and crew feedback only | `insufficient` flag under 3 events (reliability defaults to .7 in recovery scoring) | Deno: performance; Playwright: page, drawer, feedback | Not yet fed back into `scoreOptions` reliability automatically (next iteration). |
+| Rental lifecycle | Yes | `POST /rentals/:id/confirm|pickup|extend|return-scheduled|returned|cancel` with confirmation number, end date, history; `GET /rentals/due` raises return-due notifications (once per day) | — | Playwright: requested → confirmed (#) → on rent → extend (+2 d) → return scheduled → returned | No cron wired for `/rentals/due` yet — it runs on app load (see SETUP.md for the cron line). |
+| Breakdown photos (private) | Yes | `POST/GET /breakdowns/:id/media` → private bucket `breakdown-media` via service role; 1-hour signed URLs; client resizes to ≤1280 px JPEG before upload | Names-only record if upload fails | Playwright: upload → thumbnail → signed URL 200; anon public URL 400, anon list empty | 8 files / 8 MB each per request; video/audio accepted by MIME but not captured by the form yet. |
+| Web push | Yes (wired) | `GET /push/vapid`, `POST /push/subscribe`, `POST /push/test`; `sw.js` push + notificationclick; `pushAll()` fans out on every notification when `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` secrets exist | In-app bell only until keys are set (UI says so) | Not exercised end-to-end (needs keys + a real browser subscription) | Escalation / quiet hours not implemented. |
+| Market-rate research | Yes | `ss_market_rates` seeded from BLS OEWS May 2023, Baton Rouge MSA (7 occupations, source URL + date); `GET /pricing/market` compares to current wages and returns a recommendation string | — | Smoke; Playwright: panel renders | Recommendation only — rate changes still go through `POST /pricing/labor` with a reason. May 2024 table could not be fetched (BLS bot mitigation); refresh manually. |
+| Equipment rates | Yes | `GET /pricing/equipment`: own hourly/daily cost vs cheapest rental card for the same class (own-vs-rent Δ/day) | — | Playwright: panel | — |
+
 ## 3. Routes added (all under `/functions/v1/ss-api`, header `x-tenant: demo`)
 
 ```
@@ -53,15 +64,29 @@ GET  /jobs/:id/estimates        POST /jobs/:id/estimates
 POST /requirements/:id          (status/allocation; 409 on allocation conflict)
 GET  /pricing/labor             POST /pricing/labor         (reason required → ss_audit)
 GET  /approvals                 GET  /audit                 GET /inventory
+
+v1.4.0:
+GET|POST /resources/search      GET /resources/providers
+POST /resources/reserve         POST /resources/call-package
+GET  /vendors                   GET /vendors/:id            POST /vendors/:id/feedback
+POST /rentals/:id/{confirm|pickup|extend|return-scheduled|returned|cancel}
+GET  /rentals/due
+POST /breakdowns/:id/media      GET /breakdowns/:id/media   (signed URLs, 1 h)
+GET  /push/vapid                POST /push/subscribe        POST /push/test
+GET  /pricing/market            GET /pricing/equipment
 ```
 
 ## 4. Migration `scagscapes_field_ops`
 
 Tables: `ss_equipment_assets`, `ss_equipment_events`, `ss_breakdowns`, `ss_recovery_options`, `ss_approvals`, `ss_job_requirements`, `ss_inventory_items`, `ss_labor_rates`, `ss_estimate_versions`, `ss_audit`. `ss_vendors.kind` check extended (repair, mobile_repair, hose, dealer, tire, transport, small_engine). RLS: `select` only for the demo tenant via the publishable key; all writes go through the edge function's service role. Tenant settings gained `approval`, `recovery_weights`, `crew_cost_per_hour`. Seed: 7 fleet assets, inventory, 4 labor rates, 17 providers with verified phone numbers/addresses.
 
+## 4b. Migrations `scagscapes_field_ops_2`, `scagscapes_reservation_status_lifecycle`
+
+`ss_provider_feedback`, `ss_market_rates` (seeded), `ss_push_subscriptions` (RLS on, no anon policy — service role only, by design), `ss_reservations` + confirmation/end_date/pickup_at/returned_at/history and widened status check, `ss_breakdowns.media`, private storage bucket `breakdown-media` (no storage policies → only the service role can read/write; the app never touches the bucket directly). SQL in `supabase/migrations/scagscapes_field_ops_2.sql`.
+
 ## 5. Env vars / secrets
 
-No new secrets. Existing optional ones (see `SETUP.md`): `TWILIO_*`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `BRAVE_API_KEY`. The only key in the page is the Supabase publishable key.
+New **optional** secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (web push; generate with `npx web-push generate-vapid-keys`). Without them push stays in-app. Existing optional ones (see `SETUP.md`): `TWILIO_*`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `BRAVE_API_KEY`. The only key in the page is the Supabase publishable key.
 
 ## 6. Tests executed
 
@@ -69,6 +94,18 @@ No new secrets. Existing optional ones (see `SETUP.md`): `TWILIO_*`, `RESEND_API
 - Playwright (headless Chromium against the built page in live mode): equipment list → asset drawer → report breakdown (symptom chips, address) → 9 ranked options, 1 recommended, safety-shutdown flag → choose → call package → outcome recorded (`LIVE_VERIFIED`) → breakdown list count; job drawer → generate requirements (31 items, red, 3 blocking) → status change → readiness % updates; pricing page (4 labor rates, 4 panels); mobile "More" sheet lists the new sections. No console or page errors.
 - Deployed smoke (v1.3.0): idempotent dedupe, approval under/over crew-lead limit, estimate v1 with/without discount.
 - Test rows created in the demo tenant were deleted afterwards.
+
+## 6b. Live vs. call — by provider
+
+| Provider | Search | Price | Availability | Reserve / book | How it ends |
+|---|---|---|---|---|---|
+| Internal (equipment, inventory, prior rentals) | live | internal cost | LIVE_VERIFIED | allocate | in-app |
+| Home Depot Tool Rental (#0357, #0375) | live | PROVIDER_POSTED | PROVIDER_POSTED on-hand count | no API → deep link to homedepot.com | record confirmation # |
+| Sunbelt / United / Herc | rate card | ESTIMATED / dated POSTED | CALL_TO_CONFIRM | quote request texted (Twilio) or simulated | branch reply → Confirm with # |
+| Rokrunner | live Shopify feed | PROVIDER_POSTED | storefront flag | checkout on their site | — |
+| SiteOne / HD stores / price book | dated price book | POSTED (dated) / ESTIMATED | CALL_TO_CONFIRM | deep link or call | — |
+| Pirtek, Cajun Hose, LA On-Site, Kenworth, Wooddale, Southern Tire, dealers, towing | directory (verified) | ESTIMATED planning figures | CALL_TO_CONFIRM | Doggett / Emery / WPI / Kenworth: online service form; others: call package | call outcome → LIVE_VERIFIED |
+| OpenStreetMap places | live bounded search | none | CALL_TO_CONFIRM (.3) | call | — |
 
 ## 7. Build
 
@@ -82,6 +119,40 @@ Static site; no bundler. `node --check` on the assembled script passes. `index.h
 4. Job readiness → BOM + template → inventory match → blocking items → purchasing lists → departure gate with manager exception.
 5. Estimate → labor loaded rates + equipment daily + materials → margin with/without discount → customer view.
 
+## 8b. Security notes
+
+- Only the Supabase publishable key ships in the page; RLS limits it to `select` on demo-tenant rows. All writes, provider calls, storage access and push go through `ss-api` with the service role.
+- `ss_push_subscriptions` has RLS enabled and no policy (linter INFO, intentional). Bucket `breakdown-media` is private with no storage policies; the app only ever sees 1-hour signed URLs.
+- Provider adapters run server-side with 8–12 s timeouts; a failing provider returns a `CONNECTION_ERROR` row rather than blocking or inventing data. Nothing is scraped behind a login; Home Depot's endpoint is unauthenticated and clearly labeled undocumented/`PROVIDER_POSTED`.
+- Idempotency: breakdowns by `client_id`; rental actions append to `history` and are audited; reservation status changes are validated by a DB check constraint.
+- Not done: authentication. Roles are self-declared (`x-role` header / body). Do not expose this branch to real crews before Supabase Auth + per-role RLS (next iteration).
+
+## 8c. Deployment
+
+1. `git checkout feature/field-ops` (or merge PR #2).
+2. Migrations are already applied to `cscowglyrgxqxwcnftzt` (`scagscapes_field_ops`, `scagscapes_field_ops_2`, `scagscapes_reservation_status_lifecycle`). For a new project run the SQL in `supabase/migrations/` in order.
+3. `supabase functions deploy ss-api --no-verify-jwt --project-ref cscowglyrgxqxwcnftzt` (already at v1.4.0).
+4. Push to `main` → Railway (scagscapes.bridgebox.ai) and Vercel redeploy the static app; installed phones pick up cache `scagscapes-v7`.
+5. Optional: `supabase secrets set VAPID_PUBLIC_KEY=… VAPID_PRIVATE_KEY=…` then redeploy; add the `/rentals/due` cron (SETUP.md).
+
+## 8d. Rollback
+
+- App: revert `main` to `59d1c37` (v5) or re-deploy the previous Railway/Vercel deployment; bump nothing — older `sw.js` cache name reinstalls cleanly.
+- Function: `git checkout 59d1c37 -- supabase/functions/ss-api && supabase functions deploy ss-api --no-verify-jwt --project-ref cscowglyrgxqxwcnftzt` (v1.2.0). The v1.3/1.4 tables are additive and can stay; nothing in the old function reads them.
+- Data: field-ops tables can be dropped with `drop table ss_provider_feedback, ss_market_rates, ss_push_subscriptions, ss_audit, ss_estimate_versions, ss_labor_rates, ss_inventory_items, ss_job_requirements, ss_approvals, ss_recovery_options, ss_breakdowns, ss_equipment_events, ss_equipment_assets;` — irreversible, only if abandoning the feature.
+
+## 8e. Verification checklist
+
+- [x] `deno check index.ts` clean · `deno test` 16/16
+- [x] Playwright: breakdown → 9 options → choose → call package → outcome LIVE_VERIFIED; requirements → readiness; pricing (11 rows, 6 panels incl. market + equipment); universal search (31 rows, sort, call package); repair search (9); vendors (35, drawer, feedback); rental lifecycle (5 transitions); photo upload → signed URL 200
+- [x] Privacy: anon public-object URL 400; anon bucket list empty; anon `ss_push_subscriptions` permission denied
+- [x] Security advisor: 0 errors/warnings (1 intentional INFO)
+- [x] Test rows removed from the demo tenant (one orphaned test photo remains in the bucket; delete from Storage UI)
+- [ ] Web push end-to-end (needs VAPID keys on a real device)
+- [ ] Auth / roles (not in scope of this branch)
+
+Screenshots: `docs/screenshots/` (universal-search, call-package, vendor-performance, pricing-market, rental-lifecycle, breakdown-triage, job-readiness, breakdown-media).
+
 ## 9. Unresolved risks
 
 - Home Depot rental endpoint is undocumented; treated as `PROVIDER_POSTED` and can go `STALE`/`CONNECTION_ERROR` at any time.
@@ -92,4 +163,4 @@ Static site; no bundler. `node --check` on the assembled script passes. `index.h
 
 ## 10. Next iteration
 
-Supabase Auth + per-role RLS; private photo bucket with signed URLs; camera QR scanner; Mapbox/OSRM drive-time; vendor SMS quote round-trip (Twilio inbound → option auto-verified); scheduled re-check of `STALE` options; QuickBooks sync for estimate versions.
+Supabase Auth + per-role RLS; feed vendor performance into recovery scoring reliability; multi-item shopping-plan optimizer (one-stop vs lowest-cost vs fastest); private photo bucket with signed URLs; camera QR scanner; Mapbox/OSRM drive-time; vendor SMS quote round-trip (Twilio inbound → option auto-verified); scheduled re-check of `STALE` options; QuickBooks sync for estimate versions.

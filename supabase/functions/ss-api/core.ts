@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-export const VERSION = "1.3.0";
+export const VERSION = "1.4.0";
+export const STATUS = { LIVE: "LIVE_VERIFIED", POSTED: "PROVIDER_POSTED", CALL: "CALL_TO_CONFIRM", EST: "ESTIMATED", NA: "UNAVAILABLE", STALE: "STALE", ERR: "CONNECTION_ERROR" } as const;
 export const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 export const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -80,6 +81,7 @@ export const integrations = () => ({
   stripe: !!Deno.env.get("STRIPE_SECRET_KEY"),
   brave: !!Deno.env.get("BRAVE_API_KEY"),
   resend: !!Deno.env.get("RESEND_API_KEY"),
+  push: !!(Deno.env.get("VAPID_PUBLIC_KEY") && Deno.env.get("VAPID_PRIVATE_KEY")),
 });
 // Outbound message: real Twilio/Resend when secrets exist, otherwise logged as "simulated" so the demo shows exactly what would go out.
 export async function send(t: string, channel: "sms" | "email" | "push", to: string, body: string, ref?: { type: string; id: string }) {
@@ -132,3 +134,10 @@ export function guessType(text: string) {
   return ["drain", text.slice(0, 60)];
 }
 
+
+// Web Push (VAPID) — real only when VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY secrets exist; otherwise in-app notifications only.
+export async function pushAll(t: string, title: string, body: string, ref?: { type: string; id: string }) {
+  const pub = Deno.env.get("VAPID_PUBLIC_KEY"), priv = Deno.env.get("VAPID_PRIVATE_KEY"); if (!pub || !priv) return "not configured";
+  const { data: subs } = await sb.from("ss_push_subscriptions").select("*").eq("tenant_id", t); if (!subs?.length) return "no subscribers";
+  try { const wp: any = await import("npm:web-push@3.6.7"); const lib = wp.default || wp; lib.setVapidDetails("mailto:nedpearson@gmail.com", pub, priv); let sent = 0; for (const s of subs) { try { await lib.sendNotification({ endpoint: s.endpoint, keys: s.keys }, JSON.stringify({ title, body, ref })); sent++; } catch (e) { if ((e as any).statusCode === 410 || (e as any).statusCode === 404) await sb.from("ss_push_subscriptions").delete().eq("id", s.id); } } return `sent ${sent}`; } catch (e) { return "error: " + (e as Error).message; }
+}

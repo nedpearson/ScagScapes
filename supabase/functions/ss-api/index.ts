@@ -16,6 +16,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType, payLink, integrations } from "./core.ts";
 import { sourcing } from "./sourcing.ts";
 import { fieldops } from "./fieldops.ts";
+import { resources } from "./resources.ts";
 
 // ---------- stage machine ----------
 async function advance(t: string, job: any, dir: number, settings: any) {
@@ -145,7 +146,7 @@ Deno.serve(async (req) => {
 
     if (path === "/reset" && req.method === "POST") { if (t !== "demo") return json({ error: "reset is demo-only" }, 403); await sb.rpc("ss_reset_demo"); return json({ reset: true }); }
 
-    const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres;
+    const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
     return json({ error: "not found", path }, 404);
   } catch (e) { const m = (e as Error).message; return json({ error: m }, m === "unauthorized" ? 401 : 500); }
