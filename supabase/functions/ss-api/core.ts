@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 export const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 export const CORS = {
   "Access-Control-Allow-Origin": "*",

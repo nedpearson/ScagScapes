@@ -21,3 +21,11 @@ Live data sources and their honesty level:
 - **Research** — internal tables + DuckDuckGo instant answers + Wikipedia. Set secret `BRAVE_API_KEY` (`supabase secrets set BRAVE_API_KEY=...`) for real web results.
 
 Refresh rate cards/material prices: re-run the research checklist in `supabase/migrations/README.md` and update `checked_at`.
+
+## Field ops module (v1.3)
+
+`functions/ss-api/fieldops.ts` — equipment registry, breakdown intake (idempotent by `client_id`), rule-assisted triage (no vision model; labeled as such), ranked recovery options with configurable weights (`ss_tenants.settings.recovery_weights`), call/reserve/book decision, approval guardrails (`settings.approval`), call packages + outcome capture (→ `LIVE_VERIFIED`), job requirements/readiness/loadout, labor rates with audited changes, estimate versions with discount impact. Routes and the capability table are in `../docs/FIELD-OPS.md`.
+
+Every price/availability carries one of: `LIVE_VERIFIED` (human-confirmed via call outcome), `PROVIDER_POSTED` (read from the provider's own endpoint), `CALL_TO_CONFIRM`, `ESTIMATED` (rate card), `UNAVAILABLE`, `STALE`, `CONNECTION_ERROR`.
+
+Tests: `deno test functions/ss-api/tests.ts` (pure functions, no network).

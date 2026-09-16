@@ -2,7 +2,9 @@
 
 Demo of the automated sales-to-billing operating layer for **Scag Scapes LLC** (Baton Rouge, LA) — a BridgeBox.ai client app.
 
-Missed-call text-back · self-booking · six-service quote builder with auto-BOM · job pipeline · rain-triggered campaigns · auto-invoicing · review capture · customers · automation settings. Desktop and phone (installable PWA).
+Missed-call text-back · self-booking · six-service quote builder with auto-BOM · job pipeline · rain-triggered campaigns · auto-invoicing · review capture · customers · automation settings · sourcing (rentals, materials, fuel, research) · **field ops** (equipment registry, breakdown → ranked recovery → call/reserve/book, approvals, job readiness, loaded labor & estimate versions). Desktop and phone (installable PWA).
+
+Field-ops implementation report, capability table and limits: `docs/FIELD-OPS.md`.
 
 ## Run
 
