@@ -357,6 +357,7 @@ tr.best td{background:var(--ok-soft)}
     <button data-act="nav" data-id="rain">Rain trigger</button>
     <button data-act="nav" data-id="billing">Billing &amp; reviews</button>
     <button data-act="nav" data-id="customers">Customers</button>
+    <button data-act="nav" data-id="properties">Properties</button>
     <button data-act="nav" data-id="sourcing">Sourcing</button>
     <button data-act="nav" data-id="equipment">Equipment</button>
     <button data-act="nav" data-id="breakdowns">Breakdowns <span class="n" data-count="breakdowns"></span></button>
@@ -397,6 +398,7 @@ tr.best td{background:var(--ok-soft)}
   <section class="section" id="s-rain"></section>
   <section class="section" id="s-billing"></section>
   <section class="section" id="s-customers"></section>
+  <section class="section" id="s-properties"></section>
   <section class="section" id="s-sourcing"></section>
   <section class="section" id="s-equipment"></section>
   <section class="section" id="s-breakdowns"></section>
@@ -1306,6 +1308,47 @@ Object.assign(A,{
 });
 R.equipment=()=>{renderEquipment();loadAssets()};R.breakdowns=()=>{renderBreakdowns();loadBreakdowns()};R.pricing=()=>{renderPricing();loadPricing()};
 TITLES.equipment=['Equipment',()=>'Fleet registry, QR lookup, breakdown reporting'];TITLES.breakdowns=['Breakdowns',()=>'Triage → ranked recovery → call, book or reserve → close out'];TITLES.pricing=['Pricing & estimates',()=>'Loaded labor, audited rate changes, estimate versions, customer transparency'];
+
+// ---------- Properties (PRODUCT MANDATE 11: the graph is Customer -> Property -> Job, not Lead -> Job) ----------
+// What is written here is what makes the second job at an address cheaper to estimate than the first: soil,
+// lot size, what the drainage actually did. It is Scag's record, not a vendor's - it exports with /export.
+const PR = { list: [], loading: false, jobs: [] };
+const SOILS = ['', 'Heavy clay', 'Clay loam', 'Silt loam', 'Sandy loam', 'Sand', 'Fill / unknown'];
+async function loadProperties(){PR.loading=true;try{PR.list=await api('/properties')}catch(e){toast('Properties: '+e.message)}PR.loading=false;if(S.ui.sec==='properties')renderProperties()}
+function propJobs(pr){return (S.jobs||[]).filter(j=>j.property_id===pr.id)}
+function propScore(pr){let n=0;if(pr.lot_sqft)n++;if(pr.soil)n++;if(pr.drainage_notes)n++;if(pr.elevation_scan)n++;if((pr.photos||[]).length)n++;return n}
+function renderProperties(){
+  const rows=PR.list;
+  $('#s-properties').innerHTML=`<div class="panel"><header><h3>Properties</h3><span class="hint">${rows.length} address${rows.length===1?'':'es'} · what we know before the truck rolls</span></header>
+  <div class="body">${PR.loading&&!rows.length?'<div class="empty">Loading…</div>':!rows.length?'<div class="empty">No properties yet. They are created automatically from every lead address.</div>':
+  `<table class="tbl-full"><thead><tr><th>Address</th><th>Area</th><th>Soil</th><th>Lot</th><th>Jobs here</th><th>Known</th><th></th></tr></thead><tbody>
+  ${rows.map(pr=>{const js=propJobs(pr);const k=propScore(pr);return `<tr><td><b>${esc(pr.addr)}</b>${pr.drainage_notes?`<div style="font-size:11.5px;color:var(--ink3)">${esc(String(pr.drainage_notes).slice(0,70))}</div>`:''}</td>
+    <td>${esc(pr.area||'—')}</td><td>${esc(pr.soil||'—')}</td><td>${pr.lot_sqft?(+pr.lot_sqft).toLocaleString()+' sf':'—'}</td>
+    <td>${js.length?js.length:'—'}</td><td><span class="pill ${k>=4?'ok':k>=2?'warn':'mute'}">${k}/5</span></td>
+    <td style="text-align:right"><button class="btn sm" data-act="prop.open" data-id="${pr.id}">Open</button></td></tr>`}).join('')}
+  </tbody></table>`}</div></div>
+  <div class="panel"><header><h3>Why this matters</h3></header><div class="body"><p style="font-size:13px;color:var(--ink2);margin:0">Every field filled here is a field the estimator does not have to guess on the next job at that address, and a field the AI layer reads before it recommends anything — <span class="mono">context()</span> pulls the property and the prior jobs at it. Heavy clay with a known perched water table is a different bid from sandy loam, and right now that difference lives in Charlie's head. This is where it stops living only there.</p></div></div>`}
+function propSheet(id){const pr=PR.list.find(x=>x.id===id);if(!pr)return;const js=propJobs(pr);
+  openSheet(`<header><h3>${esc(pr.addr)}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody">
+  ${js.length?`<p style="font-size:12.5px;color:var(--ink3);margin:0 0 10px">${js.length} job${js.length>1?'s':''} here: ${js.map(j=>esc(j.name+' · '+(j.scope||''))).join(' · ')}</p>`:'<p style="font-size:12.5px;color:var(--ink3);margin:0 0 10px">No jobs at this address yet.</p>'}
+  <div class="form">
+    <div><label class="fl" for="pr_area">Area</label><input id="pr_area" value="${esc(pr.area||'')}"></div>
+    <div><label class="fl" for="pr_lot">Lot size (sq ft)</label><input id="pr_lot" type="number" step="any" value="${pr.lot_sqft??''}"></div>
+    <div><label class="fl" for="pr_soil">Soil</label><select id="pr_soil">${SOILS.map(o=>`<option${o===(pr.soil||'')?' selected':''}>${o}</option>`).join('')}</select></div>
+    <div><label class="fl" for="pr_scan">Elevation scan (Moasure / survey ref)</label><input id="pr_scan" value="${esc(pr.elevation_scan?(typeof pr.elevation_scan==='string'?pr.elevation_scan:JSON.stringify(pr.elevation_scan)):'')}"></div>
+    <div class="full"><label class="fl" for="pr_notes">Drainage notes — where the water goes, what we found, what we would do differently</label><textarea id="pr_notes" rows="3">${esc(pr.drainage_notes||'')}</textarea></div>
+  </div>
+  <div class="row-actions" style="margin-top:12px"><button class="btn primary" data-act="prop.save" data-id="${pr.id}">Save</button>${LIVE()?`<button class="btn ghost" data-act="ai.ask" data-id="scope_from_lead|property|${pr.id}">AI: read this property</button>`:''}<button class="btn ghost" data-act="close">Cancel</button></div>
+  <div id="aiHost"></div></div>`)}
+Object.assign(A,{
+  'prop.open':id=>propSheet(id),
+  'prop.save':id=>run(async()=>{const scan=$('#pr_scan').value.trim();
+    await api('/properties/'+id,{area:$('#pr_area').value.trim()||null,lot_sqft:+$('#pr_lot').value||null,soil:$('#pr_soil').value||null,elevation_scan:scan?{ref:scan}:null,drainage_notes:$('#pr_notes').value.trim()||null});
+    closeAll();await loadProperties();toast('Saved — the next estimate at this address starts from it')},'Property'),
+});
+R.properties=()=>{renderProperties();loadProperties()};
+TITLES.properties=['Properties',()=>'Soil, lot, elevation and what the drainage actually did — per address'];
+
 outboxSync();
 
 
@@ -1439,7 +1482,7 @@ function aiPanel(host,res,task){if(!host)return;const ev=(res.evidence||[]).map(
 Object.assign(A,{
   'job.actuals':id=>{const j=job(id);if(j)actualsSheet(j)},
   'job.actuals.save':id=>run(async()=>{const body={};for(const f of ACT_FIELDS){const v=$('#act_'+f[0]).value;if(v!=='')body[f[0]]=+v}body.notes=$('#act_notes').value||null;await api(`/jobs/${id}/actuals`,body);closeAll();toast('Actuals saved - the next estimate learns from this job')},'Save actuals'),
-  'ai.ask':(id,el)=>run(async()=>{const [task,kind,ref,extra]=id.split('|');const refo=kind==='job'?{job_id:ref}:kind==='lead'?{lead_id:ref}:kind==='bd'?{breakdown_id:ref,asset_id:(FO.bd&&FO.bd.asset_id)||undefined}:kind==='asset'&&ref?{asset_id:ref}:{};const input=task==='takeoff_review'?{service_type:S.ui.qtype,inputs:S.q[S.ui.qtype],quote:calc()}:extra?{symptom:extra}:{};
+  'ai.ask':(id,el)=>run(async()=>{const [task,kind,ref,extra]=id.split('|');const refo=kind==='job'?{job_id:ref}:kind==='lead'?{lead_id:ref}:kind==='property'?{property_id:ref}:kind==='bd'?{breakdown_id:ref,asset_id:(FO.bd&&FO.bd.asset_id)||undefined}:kind==='asset'&&ref?{asset_id:ref}:{};const input=task==='takeoff_review'?{service_type:S.ui.qtype,inputs:S.q[S.ui.qtype],quote:calc()}:extra?{symptom:extra}:{};
     const host=el.closest('.drawer,.panel,#drawer,#main,body').querySelector('#aiHost')||$('#aiHost');if(host)host.innerHTML='<div class="empty">Asking…</div>';const res=await api('/ai/recommend',{task,ref:refo,input});aiPanel(host,res,task)},'AI'),
   'ai.decide':(id,el)=>run(async()=>{const [rid,decision]=id.split('|');await api(`/ai/recommendations/${rid}/decision`,{decision,by:'app'});const box=el.closest('.fact');if(box)box.querySelector('.row-actions').innerHTML=`<span class="pill ${decision==='accepted'?'ok':decision==='modified'?'warn':'mute'}">${decision}</span>`;toast('Recorded - this decision trains the next one')},'Decision'),
 });

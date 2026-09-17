@@ -77,3 +77,25 @@ Run before any provider key is set, because two of the findings convert to money
 **Checked and clean:** repo credential scan found no service-role JWT, Postgres URL or provider key in the tree or in history (`.gitignore` covers `.env`, `.env.*`; `.env` never committed) — the only key in the repo is the publishable one, public by design. `/export` is tenant-scoped and omits `ss_tenants`, so no `api_key` can leak through it. Vercel preview deployments are SSO-protected. `auth.users` is empty **and** no policy keys on `auth.uid()`, so there is no inert-policy trap waiting.
 
 **Note on the public repo:** `github.com/nedpearson/ScagScapes` is public. No credentials are exposed, but the full route table and `docs/PRODUCT-MANDATE.md` are readable by anyone, which is how someone would find an open endpoint without guessing. Worth a deliberate decision given the NDA and watermarking around the Charlie package.
+
+---
+
+## Follow-through round 3 — September 17, 2026 (v1.6.0)
+
+Closes the two items on the remaining-gaps list that did not require a key Ned has to set himself.
+
+### §13 — the SMS regex now has a measurable challenger
+The audit said the regex intent detector in `/webhooks/sms` "should *use* a routed model, not compete with one," and that it stays until evals show a model beats it. That sentence was unenforceable, because there was no number for the regex. There is now.
+
+- `smsIntent()` moved into `core.ts` as a pure function. `index.ts` runs it in production and `evals.ts` scores **the same function** as the baseline — they cannot diverge, and `tests.ts` fails if they do.
+- `POST /ai/evals/run` writes a `provider: "baseline"` row for every fixture with a real deterministic equivalent, alongside every model's rows in `ss_ai_evals`. Fixtures without one get no baseline; inventing one would make the comparison dishonest.
+- Measured today: the ladder scores **0.75** on `reply-01`. It loses the point for never mentioning hauling, because "does the **price** include hauling the dirt off" trips the price branch first. That is the gap a model has to close, recorded rather than argued about.
+- `settings.ai_sms` gates the routing: `"off"` (default), `"shadow"` (the model drafts, the ladder's reply still sends, the draft is logged as a recommendation for accept/reject), `"live"` (the model answers). Even on `live` the model never handles a **booking** — that has side effects — never sends a reply containing a number (`PRICE_RE`), yields to the ladder below `settings.ai_sms_min_confidence` (default 0.7), and any error falls back silently. A model failure must never drop a customer's text.
+- `/ai/recommend`'s body became the exported `recommend()`, so the webhook goes through the identical guarded path — strip, ledger row, confidence — rather than a second unguarded one.
+
+### §11 — property enrichment UI
+`ss_properties` existed and `context()` read it, but nothing could fill it. New **Properties** section: every address with soil, lot size, elevation-scan reference, drainage notes, jobs at that address and a 0–5 "known" score, editable in a sheet that writes to `POST /properties/:id`. `context()` now also accepts `property_id` directly, so *AI: read this property* works from the sheet. Verified: `/ai/recommend` with a bare `property_id` returns sources `ss_properties, ss_jobs(property)`.
+
+Verified after deploy: `/health` 1.6.0; all three SMS branches (`book`, `haul`, fallback) return byte-identical replies to v1.5.1 with `ai_draft: null`; `/properties` returns 6; gated routes still 401; demo reset after probing.
+
+**Status change:** §13 Partial → **Implemented** (the check is now a number in a table, not a sentence in a doc). §11 Partial → **Implemented**. §12 stays Partial until a real model is scored — that needs a key.

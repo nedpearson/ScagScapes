@@ -15,12 +15,14 @@
 //                     POST /ai/evals/run · GET /ai/evals · POST /jobs/:id/actuals · GET /estimate-accuracy · GET /export · GET /ai/audit
 //   Governed by docs/PRODUCT-MANDATE.md - price() stays the only pricing authority; AI recommends, humans decide.
 // Auth: header x-ss-key = ss_tenants.api_key. Tenant "demo" needs no key (public demo).
+//       /export, POST /ai/models and POST /ai/evals/run additionally require SS_ADMIN_KEY on every tenant.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType, payLink, integrations } from "./core.ts";
+import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType, smsIntent, payLink, integrations } from "./core.ts";
 import { sourcing } from "./sourcing.ts";
 import { fieldops } from "./fieldops.ts";
 import { resources } from "./resources.ts";
-import { ai } from "./ai.ts";
+import { ai, recommend } from "./ai.ts";
+import { PRICE_RE } from "./evals.ts";
 
 // ---------- stage machine ----------
 async function advance(t: string, job: any, dir: number, settings: any) {
@@ -89,15 +91,27 @@ Deno.serve(async (req) => {
       if (!lead) { const [ty, need] = guessType(text); lead = (await sb.from("ss_leads").insert({ tenant_id: t, name: from, phone: from, area: "—", source: "Text", service_type: ty, need, status: "new", response_seconds: 1 }).select().single()).data; }
       await msg(t, lead.id, "cust", text);
       const slots = await openSlots(t, 2); let reply = ""; let action = "answered";
-      const pick = slots.find((s) => new RegExp(dLabel(s.date).split(" ")[0] + "|" + s.time.replace(":", "\\:"), "i").test(text));
-      if (/^(yes|y|yeah|yep|sure|ok)/i.test(text) || pick) { const s = pick ?? slots[0]; await book(t, lead, s); reply = `Booked — ${slotStr(s)}${lead.addr ? " at " + lead.addr : ""}. You'll get a reminder the night before. — Scag Scapes`; action = "booked"; await event(t, "Estimate booked", lead.name, slotStr(s) + " · confirmation sent.", { type: "lead", id: lead.id }); }
-      else if (/(deposit|how much|cost|price)/i.test(text)) reply = `${settings.deposit_pct ?? 30}% deposit locks the date, balance when we're done and you're happy. Charlie maps the yard first so the price is exact.`;
-      else if (/(haul|dirt|spoil)/i.test(text)) reply = "It does — spoils hauled, trench line restored.";
-      else if (/(neighbor|friend|referral)/i.test(text)) reply = "Love it — send me their number and I'll text them. $200 off your balance for the referral.";
-      else { const [ty, need] = guessType(text); if (lead.need?.startsWith("Unknown")) await sb.from("ss_leads").update({ service_type: ty, need }).eq("id", lead.id); reply = `Got it. Charlie does 3D elevation mapping so the fix actually works. Next open site visits: ${slots.map(slotStr).join(" or ")} — which works? Or book: scagscapes.com/book`; action = "offered"; }
+      const si = smsIntent(text, slots, settings.deposit_pct ?? 30);
+      if (si.intent === "book") { const s = si.pick; await book(t, lead, s); reply = `Booked — ${slotStr(s)}${lead.addr ? " at " + lead.addr : ""}. You'll get a reminder the night before. — Scag Scapes`; action = "booked"; await event(t, "Estimate booked", lead.name, slotStr(s) + " · confirmation sent.", { type: "lead", id: lead.id }); }
+      else { reply = si.reply; if (si.intent === "other") { const [ty, need] = guessType(text); if (lead.need?.startsWith("Unknown")) await sb.from("ss_leads").update({ service_type: ty, need }).eq("id", lead.id); action = "offered"; } }
+
+      // PRODUCT MANDATE 8/13: the ladder above is the baseline and it stays in charge until the numbers say
+      // otherwise. settings.ai_sms: "off" (default) | "shadow" (model drafts, the ladder's reply still sends,
+      // draft logged for accept/reject) | "live" (model answers). Even on "live" the model never handles a
+      // booking - that has side effects - never sends a reply carrying a number, and yields to the ladder on
+      // low confidence or any error. A model failure must never drop a customer's text.
+      let ai_draft: any = null; const mode = settings.ai_sms ?? "off";
+      if (mode !== "off") {
+        try {
+          const r = await recommend(t, "customer_reply", { lead_id: lead.id }, { text, slots: slots.map(slotStr), deterministic_reply: si.reply });
+          const draft = typeof r.out?.recommendation === "string" ? r.out.recommendation : null;
+          ai_draft = { id: r.id, reply: draft, confidence: Number(r.out?.confidence ?? 0), model: r.comp.provider + "/" + r.comp.model_id, used: false };
+          if (mode === "live" && draft && si.intent !== "book" && !PRICE_RE.test(draft) && ai_draft.confidence >= (settings.ai_sms_min_confidence ?? 0.7)) { reply = draft; action = "ai_" + action; ai_draft.used = true; }
+        } catch (_) { /* the customer still gets the deterministic answer */ }
+      }
       await msg(t, lead.id, "sys", reply);
       await event(t, "Reply handled", lead.name, `"${text.slice(0, 60)}" → ${action} automatically.`, { type: "lead", id: lead.id });
-      return json({ handled: true, lead_id: lead.id, action, reply });
+      return json({ handled: true, lead_id: lead.id, action, reply, ai_draft });
     }
 
     if (path === "/quote" && req.method === "POST") {

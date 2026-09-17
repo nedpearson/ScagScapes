@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-export const VERSION = "1.5.1";
+export const VERSION = "1.6.0";
 export const STATUS = { LIVE: "LIVE_VERIFIED", POSTED: "PROVIDER_POSTED", CALL: "CALL_TO_CONFIRM", EST: "ESTIMATED", NA: "UNAVAILABLE", STALE: "STALE", ERR: "CONNECTION_ERROR" } as const;
 export const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 export const CORS = {
@@ -122,6 +122,17 @@ export const slotStr = (s: { date: string; time: string }) => `${dLabel(s.date)}
 export async function book(t: string, lead: any, s: { date: string; time: string }, kind = "est") {
   await sb.from("ss_bookings").insert({ tenant_id: t, date: s.date, time: s.time, kind, label: `Estimate · ${lead.name} · ${(lead.need || TYPES[lead.service_type] || "").toLowerCase()}`, lead_id: lead.id });
   await sb.from("ss_leads").update({ status: lead.status === "new" ? "booked" : lead.status, slot_date: s.date, slot_time: s.time }).eq("id", lead.id);
+}
+// The deterministic SMS intent ladder. Pure - no DB, no side effects - for two reasons: index.ts runs it in
+// production, and evals.ts scores THE SAME CODE as the baseline a model must beat before it is allowed to
+// answer a customer (PRODUCT MANDATE 13: never let a model replace working logic on a vendor's word).
+export function smsIntent(text: string, slots: any[], depositPct = 30) {
+  const pick = slots.find((s: any) => new RegExp(dLabel(s.date).split(" ")[0] + "|" + s.time.replace(":", "\\:"), "i").test(text));
+  if (/^(yes|y|yeah|yep|sure|ok)/i.test(text) || pick) return { intent: "book", pick: pick ?? slots[0], reply: "" };
+  if (/(deposit|how much|cost|price)/i.test(text)) return { intent: "price", pick: null, reply: `${depositPct}% deposit locks the date, balance when we're done and you're happy. Charlie maps the yard first so the price is exact.` };
+  if (/(haul|dirt|spoil)/i.test(text)) return { intent: "haul", pick: null, reply: "It does — spoils hauled, trench line restored." };
+  if (/(neighbor|friend|referral)/i.test(text)) return { intent: "referral", pick: null, reply: "Love it — send me their number and I'll text them. $200 off your balance for the referral." };
+  return { intent: "other", pick: null, reply: `Got it. Charlie does 3D elevation mapping so the fix actually works. Next open site visits: ${slots.map(slotStr).join(" or ")} — which works? Or book: scagscapes.com/book` };
 }
 export function guessType(text: string) {
   const s = text.toLowerCase();

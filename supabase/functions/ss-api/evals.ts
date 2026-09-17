@@ -1,7 +1,8 @@
 // Versioned evaluation suite on REAL Scag Scapes tasks (PRODUCT MANDATE §3, §12).
 // A model is promoted to production only when its measured score here justifies it - never on a vendor's word.
 // Bump SUITE_VERSION whenever a fixture or scorer changes so historical rows in ss_ai_evals stay comparable.
-export const SUITE_VERSION = "2026.09.2";
+export const SUITE_VERSION = "2026.09.3";
+import { smsIntent } from "./core.ts";
 
 export interface Fixture { id: string; task: string; input: any; context: any; images?: string[]; expect: { must_mention?: string[]; must_not_mention?: string[]; must_not_state_price?: boolean; confidence_max?: number; must_say_not_in_records?: boolean }; }
 
@@ -31,7 +32,7 @@ export const FIXTURES: Fixture[] = [
     expect: { must_mention: ["weather"], must_not_state_price: true } },
 ];
 
-const PRICE_RE = /\$\s?\d[\d,]*(\.\d+)?|\b\d[\d,]*\s?(dollars|usd)\b|\btotal\s*(is|of|:)\s*\d/i;
+export const PRICE_RE = /\$\s?\d[\d,]*(\.\d+)?|\b\d[\d,]*\s?(dollars|usd)\b|\btotal\s*(is|of|:)\s*\d/i;
 const txt = (o: any) => JSON.stringify(o).toLowerCase();
 
 // Deterministic scorer: 0..1. Penalises invention hardest, because that is the failure that costs money.
@@ -45,4 +46,16 @@ export function score(f: Fixture, out: any): number {
   if (e.confidence_max !== undefined) { max++; if (Number(out?.confidence ?? 1) <= e.confidence_max) pts++; }
   max++; if (Array.isArray(out?.evidence) && out.evidence.length) pts++;   // cited its evidence
   return max ? +(pts / max).toFixed(3) : 0;
+}
+
+// ---------- the baseline a model has to beat ----------
+// Scored by the SAME scorer as every model, so "route SMS through the model" stops being a judgement call and
+// becomes a comparison of two numbers in ss_ai_evals. Only a task with a real deterministic equivalent gets a
+// baseline; inventing one for the others would make the comparison dishonest.
+const BASELINE_SLOTS = [{ date: "2026-09-24", time: "9:00" }, { date: "2026-09-25", time: "1:00" }];
+export function baseline(f: Fixture): any | null {
+  if (f.task !== "customer_reply") return null;
+  const si = smsIntent(String(f.input?.text ?? ""), BASELINE_SLOTS, 30);
+  return { recommendation: si.reply, reasoning: "deterministic intent ladder (core.ts smsIntent)",
+    confidence: si.intent === "other" ? 0.4 : 0.8, assumptions: [], alternatives: [], evidence: ["regex intent ladder"] };
 }

@@ -59,7 +59,8 @@ Deno.test("performance: small samples are flagged insufficient; fill rate and qu
 
 // ---- PRODUCT MANDATE guards (ai.ts / evals.ts) ----
 import { pick, strip, parseJson } from "./ai.ts";
-import { FIXTURES, score } from "./evals.ts";
+import { FIXTURES, score, baseline } from "./evals.ts";
+const { smsIntent } = await import("./core.ts");
 Deno.test("router ignores providers without a configured key and returns null when nothing is usable", () => {
   const rows: any = [{ provider: "openai", model_id: "x", enabled: true, task_weights: { general: 0.9 }, cost_out_per_m: 1 }];
   if (pick(rows, "general", { anthropic: false, openai: false, gemini: false }) !== null) throw new Error("should be null");
@@ -86,4 +87,31 @@ Deno.test("scorer punishes invented prices and rewards honest 'not in records'",
   const liar = score(f, { recommendation: "Your quote is $6,400 total.", confidence: 0.95, evidence: [] });
   if (!(honest > 0.8 && liar < 0.2)) throw new Error(`honest=${honest} liar=${liar}`);
   if (parseJson("junk {\"a\":1} tail").a !== 1) throw new Error("parseJson");
+});
+
+// The SMS ladder is now shared between production (index.ts) and the eval baseline (evals.ts). These tests
+// exist so a change to one can never silently diverge from the other.
+Deno.test("smsIntent: the deterministic ladder classifies the five branches it claims to", () => {
+  const slots = [{ date: "2026-09-24", time: "9:00" }, { date: "2026-09-25", time: "1:00" }];
+  const at = (s: string) => smsIntent(s, slots, 30).intent;
+  if (at("yes") !== "book") throw new Error("yes should book");
+  if (at("Thu works") !== "book") throw new Error("a day name should book");
+  if (at("how much is the deposit") !== "price") throw new Error("price branch");
+  if (at("do you haul the dirt off") !== "haul") throw new Error("haul branch");
+  if (at("my neighbor wants one too") !== "referral") throw new Error("referral branch");
+  if (at("my yard is a swamp") !== "other") throw new Error("fallback branch");
+  // the booking branch must hand back a slot to book, never an empty reply with no slot
+  const b = smsIntent("yes", slots, 30);
+  if (!b.pick || b.reply !== "") throw new Error("book branch must return a slot and defer the wording to the caller");
+});
+Deno.test("baseline: scored by the same scorer, and honest about where the regex loses", () => {
+  const f = FIXTURES.find((x) => x.id === "reply-01")!;
+  const b = baseline(f)!;
+  if (!b) throw new Error("customer_reply must have a baseline");
+  // "does the price include hauling" trips the price branch first, so the ladder never mentions hauling.
+  // That miss is the entire point: it is the number a model has to beat, recorded rather than argued about.
+  if (/haul/i.test(String(b.recommendation))) throw new Error("baseline unexpectedly mentions hauling");
+  const s = score(f, b);
+  if (!(s >= 0 && s < 0.8)) throw new Error(`baseline score out of expected range: ${s}`);
+  if (baseline(FIXTURES.find((x) => x.id === "triage-01")!) !== null) throw new Error("no baseline should be invented for tasks without a deterministic equivalent");
 });

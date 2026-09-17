@@ -3,7 +3,7 @@
 // confidence, then closed with a human decision and an outcome. Deterministic values (prices, totals, deposits) are
 // never produced here — price() in core.ts is the only authority and this file strips any price it sees.
 import { sb, json, price, VERSION } from "./core.ts";
-import { FIXTURES, SUITE_VERSION, score } from "./evals.ts";
+import { FIXTURES, SUITE_VERSION, score, baseline } from "./evals.ts";
 
 export type Task = "scope_from_lead" | "breakdown_triage" | "takeoff_review" | "customer_reply" | "job_risk" | "supplier_search" | "general";
 export interface ModelRow { id: string; provider: string; model_id: string; enabled: boolean; capabilities: string[]; privacy_tier: string; cost_in_per_m: number; cost_out_per_m: number; task_weights: Record<string, number>; }
@@ -41,14 +41,14 @@ export function pick(rows: ModelRow[], task: Task, avail = configured(), need: s
 }
 
 // ---------- knowledge-graph retrieval: the model sees Scag's own context, never an isolated prompt (§11) ----------
-export async function context(t: string, ref: { lead_id?: string; job_id?: string; asset_id?: string }) {
+export async function context(t: string, ref: { lead_id?: string; job_id?: string; asset_id?: string; property_id?: string }) {
   const out: any = { retrieved_at: new Date().toISOString(), sources: [] as string[] };
   if (ref.job_id) { const { data: j } = await sb.from("ss_jobs").select("*").eq("id", ref.job_id).eq("tenant_id", t).maybeSingle(); if (j) { out.job = j; out.sources.push("ss_jobs"); ref.lead_id = ref.lead_id ?? j.lead_id;
     const { data: a } = await sb.from("ss_job_actuals").select("*").eq("job_id", j.id).maybeSingle(); if (a) { out.actuals = a; out.sources.push("ss_job_actuals"); }
     const { data: q } = j.quote_id ? await sb.from("ss_quotes").select("*").eq("id", j.quote_id).maybeSingle() : { data: null }; if (q) { out.quote = q; out.sources.push("ss_quotes"); } } }
   if (ref.lead_id) { const { data: l } = await sb.from("ss_leads").select("*").eq("id", ref.lead_id).eq("tenant_id", t).maybeSingle(); if (l) { out.lead = l; out.sources.push("ss_leads"); const { data: m } = await sb.from("ss_messages").select("who,body,created_at").eq("lead_id", l.id).order("created_at").limit(30); if (m?.length) { out.messages = m; out.sources.push("ss_messages"); } } }
   if (ref.asset_id) { const { data: a } = await sb.from("ss_equipment_assets").select("*").eq("id", ref.asset_id).eq("tenant_id", t).maybeSingle(); if (a) { out.asset = a; out.sources.push("ss_equipment_assets"); const { data: b } = await sb.from("ss_breakdowns").select("symptom,status,actual_cost,actual_downtime_hours,created_at").eq("asset_id", a.id).order("created_at", { ascending: false }).limit(10); if (b?.length) { out.breakdown_history = b; out.sources.push("ss_breakdowns"); } } }
-  const pid = out.job?.property_id ?? out.lead?.property_id; if (pid) { const { data: p } = await sb.from("ss_properties").select("*").eq("id", pid).maybeSingle(); if (p) { out.property = p; out.sources.push("ss_properties");
+  const pid = out.job?.property_id ?? out.lead?.property_id ?? ref.property_id; if (pid) { const { data: p } = await sb.from("ss_properties").select("*").eq("id", pid).maybeSingle(); if (p) { out.property = p; out.sources.push("ss_properties");
     const { data: pj } = await sb.from("ss_jobs").select("id,service_type,scope,value,stage,install_date").eq("property_id", pid).order("created_at", { ascending: false }).limit(10); if (pj?.length) { out.property_jobs = pj; out.sources.push("ss_jobs(property)"); } } }
   // accumulated operating knowledge: estimate-vs-actual accuracy for this service type (the moat, §4)
   const st = out.job?.service_type ?? out.lead?.service_type; if (st) { const { data: acc } = await sb.from("ss_estimate_accuracy").select("*").eq("tenant_id", t).eq("service_type", st).maybeSingle(); if (acc) { out.history = acc; out.sources.push("ss_estimate_accuracy"); } }
@@ -76,6 +76,23 @@ export function parseJson(text: string): any { const m = text.match(/\{[\s\S]*\}
 const SYSTEM = (task: Task) => `You are the operations assistant inside Scag Scapes Command, a Baton Rouge drainage contractor's own system. Task: ${task}.
 Rules that are not negotiable: (1) use ONLY the context provided; if something is not in the context say "not in records" - never invent prices, availability, appointments, suppliers or addresses; (2) you recommend, the app decides - never state a final price or total, the pricing engine owns those; (3) return JSON with keys: recommendation (string), reasoning (string), confidence (0-1), assumptions (string[]), alternatives (string[]), evidence (string[] naming which context fields you relied on).`;
 
+// One recommendation: retrieve context, pick a model, call it, strip any number it invented, log the row.
+// Exported so an in-process caller (the SMS webhook in shadow mode) goes through this exact guarded path
+// rather than a second, unguarded one.
+export async function recommend(t: string, task: Task, ref: any, input: any) {
+  const ctx = await context(t, ref ?? {});
+  const images = await mediaUrls(t, ref ?? {});
+  const q = input?.text ?? input?.symptom ?? "";
+  if (q) { try { const hits = await retrieve(t, String(q), 6); if (hits.length) { ctx.retrieved = hits; ctx.sources.push("ss_embeddings"); } } catch (_) { /* retrieval is optional */ } }
+  const rows = await models(t); const m = pick(rows, task, configured(), images.length ? ["vision"] : []); const prov = m ? PROVIDERS[m.provider] : none;
+  let out: any, comp: Completion, err: string | null = null;
+  if (!m) { comp = await none.complete("", "", "none"); out = { recommendation: null, note: "No AI model is enabled for this tenant. Showing the retrieved records only.", confidence: 0, evidence: ctx.sources }; }
+  else { try { comp = await prov.complete(SYSTEM(task), JSON.stringify({ input: input ?? {}, context: ctx }), m.model_id, images); out = strip(parseJson(comp.text)); out.authoritative = false; } catch (e) { err = (e as Error).message; comp = { text: "", model_id: m.model_id, provider: m.provider, latency_ms: 0 }; out = { recommendation: null, note: "Model call failed: " + err, confidence: 0, evidence: ctx.sources }; } }
+  const rec = { tenant_id: t, task, ref: ref ?? {}, input: input ?? {}, context_sources: ctx.sources, media: images.length ? images.map(() => "breakdown-media (signed, 10 min)") : [], model_id: comp.model_id, provider: comp.provider, output: out, confidence: Number(out.confidence ?? 0), latency_ms: comp.latency_ms, usage: comp.usage ?? null, error: err, app_version: VERSION };
+  const { data } = await sb.from("ss_ai_recommendations").insert(rec).select().single();
+  return { id: data?.id as string | undefined, out, comp, ctx };
+}
+
 // ---------- routes ----------
 // Security sweep 2026-09-17: the demo tenant is deliberately open (it is a sandbox with /reset), but the two
 // classes of route that are bulk or billable are gated regardless of tenant: /export moves every record in one
@@ -89,16 +106,10 @@ export async function ai(path: string, req: Request, url: URL, body: any, t: str
   if (path === "/ai/models" && req.method === "POST") { if (!guard(req)) return denied(); const row = { tenant_id: t, provider: body.provider, model_id: body.model_id, enabled: body.enabled ?? true, capabilities: body.capabilities ?? ["text"], privacy_tier: body.privacy_tier ?? "vendor-processed", cost_in_per_m: Number(body.cost_in_per_m ?? 0), cost_out_per_m: Number(body.cost_out_per_m ?? 0), task_weights: body.task_weights ?? { general: 0.5 } }; const { data, error } = await sb.from("ss_ai_models").upsert(row, { onConflict: "tenant_id,provider,model_id" }).select().single(); if (error) return json({ error: error.message }, 400); return json(data); }
 
   if (path === "/ai/recommend" && req.method === "POST") {
-    const task: Task = body.task ?? "general"; const ctx = await context(t, body.ref ?? {});
-    const images = await mediaUrls(t, body.ref ?? {}); const q = body.input?.text ?? body.input?.symptom ?? ""; if (q) { try { const hits = await retrieve(t, String(q), 6); if (hits.length) { ctx.retrieved = hits; ctx.sources.push("ss_embeddings"); } } catch (_) { /* retrieval is optional */ } }
-    const rows = await models(t); const m = pick(rows, task, configured(), images.length ? ["vision"] : []); const prov = m ? PROVIDERS[m.provider] : none;
-    let out: any, comp: Completion, err: string | null = null;
-    if (!m) { comp = await none.complete("", "", "none"); out = { recommendation: null, note: "No AI model is enabled for this tenant. Showing the retrieved records only.", confidence: 0, evidence: ctx.sources }; }
-    else { try { comp = await prov.complete(SYSTEM(task), JSON.stringify({ input: body.input ?? {}, context: ctx }), m.model_id, images); out = strip(parseJson(comp.text)); out.authoritative = false; } catch (e) { err = (e as Error).message; comp = { text: "", model_id: m.model_id, provider: m.provider, latency_ms: 0 }; out = { recommendation: null, note: "Model call failed: " + err, confidence: 0, evidence: ctx.sources }; } }
-    const rec = { tenant_id: t, task, ref: body.ref ?? {}, input: body.input ?? {}, context_sources: ctx.sources, media: images.length ? images.map(() => "breakdown-media (signed, 10 min)") : [], model_id: comp.model_id, provider: comp.provider, output: out, confidence: Number(out.confidence ?? 0), latency_ms: comp.latency_ms, usage: comp.usage ?? null, error: err, app_version: VERSION };
-    const { data } = await sb.from("ss_ai_recommendations").insert(rec).select().single();
-    return json({ id: data?.id, ...out, model: { provider: comp.provider, model_id: comp.model_id, latency_ms: comp.latency_ms }, context: ctx });
+    const r = await recommend(t, body.task ?? "general", body.ref ?? {}, body.input ?? {});
+    return json({ id: r.id, ...r.out, model: { provider: r.comp.provider, model_id: r.comp.model_id, latency_ms: r.comp.latency_ms }, context: r.ctx });
   }
+  // (that body now lives in recommend(), below, so in-process callers use the identical guarded path)
   const dec = path.match(/^\/ai\/recommendations\/([0-9a-f-]{36})\/decision$/);
   if (dec && req.method === "POST") { const d = ["accepted", "modified", "rejected"].includes(body.decision) ? body.decision : null; if (!d) return json({ error: "decision must be accepted | modified | rejected" }, 400); const { data } = await sb.from("ss_ai_recommendations").update({ decision: d, decided_by: body.by ?? null, decided_at: new Date().toISOString(), final_value: body.final_value ?? null, outcome: body.outcome ?? null, kpi: body.kpi ?? null }).eq("id", dec[1]).eq("tenant_id", t).select().single(); return json(data); }
   if (path === "/ai/recommendations" && req.method === "GET") { const { data } = await sb.from("ss_ai_recommendations").select("id,task,model_id,provider,confidence,decision,outcome,kpi,latency_ms,created_at").eq("tenant_id", t).order("created_at", { ascending: false }).limit(200); return json(data ?? []); }
@@ -113,6 +124,10 @@ export async function ai(path: string, req: Request, url: URL, body: any, t: str
       if (f.images?.length && !(m.capabilities ?? []).includes("vision")) continue;   // a text-only model is not scored on a vision fixture
       try { const c = await PROVIDERS[m.provider].complete(SYSTEM(f.task as Task), JSON.stringify({ input: f.input, context: f.context }), m.model_id, f.images ?? []); text = c.text; ms = c.latency_ms; s = score(f, strip(parseJson(c.text))); } catch (x) { e = (x as Error).message; }
       const row = { tenant_id: t, suite_version: SUITE_VERSION, task: f.task, fixture_id: f.id, provider: m.provider, model_id: m.model_id, score: s, latency_ms: ms, error: e, output: text.slice(0, 4000) };
+      await sb.from("ss_ai_evals").insert(row); results.push(row); }
+    // the deterministic path, scored identically - this is the number a model has to beat (13)
+    for (const f of FIXTURES) { const b = baseline(f); if (!b) continue;
+      const row = { tenant_id: t, suite_version: SUITE_VERSION, task: f.task, fixture_id: f.id, provider: "baseline", model_id: "deterministic", score: score(f, b), latency_ms: 0, error: null, output: JSON.stringify(b).slice(0, 4000) };
       await sb.from("ss_ai_evals").insert(row); results.push(row); }
     const by: Record<string, { n: number; score: number; ms: number }> = {}; for (const r of results) { const k = r.provider + ":" + r.model_id; by[k] = by[k] ?? { n: 0, score: 0, ms: 0 }; by[k].n++; by[k].score += r.score; by[k].ms += r.latency_ms; }
     return json({ suite_version: SUITE_VERSION, fixtures: FIXTURES.length, summary: Object.fromEntries(Object.entries(by).map(([k, v]) => [k, { mean_score: +(v.score / v.n).toFixed(3), mean_latency_ms: Math.round(v.ms / v.n) }])), results });
