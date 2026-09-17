@@ -36,8 +36,12 @@ a{color:var(--water)}
 h1{font-size:clamp(26px,4vw,38px)}
 .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
 .lede{color:var(--ink2);max-width:70ch;margin:10px 0 26px}
-.grid{display:grid;grid-template-columns:340px 1fr;gap:20px}
-@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:340px minmax(0,1fr);gap:20px;align-items:start}
+.grid>*{min-width:0}
+.col{display:flex;flex-direction:column;gap:20px}
+.results{position:sticky;top:20px}
+.cardnote{font-size:11.5px;color:var(--ink3);margin:-6px 0 14px}
+@media (max-width:900px){.grid{grid-template-columns:1fr}.results{position:static}}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow)}
 .card h2{font-size:20px;margin-bottom:12px;color:var(--water-ink,var(--water))}
 label{display:block;font-size:13px;color:var(--ink2);margin-bottom:14px}
@@ -49,6 +53,7 @@ input[type=range]{width:100%;accent-color:var(--water);margin-top:6px}
 .stat{background:var(--panel2);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
 .stat b{display:block;font-family:"Barlow Condensed",sans-serif;font-size:26px;color:var(--water-ink,var(--water));line-height:1.1}
 .stat span{font-size:12px;color:var(--ink2)}
+.verdict{background:var(--water-soft);border:1px solid var(--line);border-left:3px solid var(--water);border-radius:var(--r);padding:11px 14px;font-size:13.5px;margin:0 0 16px;color:var(--ink)}
 .tbl-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--panel)}
 table{border-collapse:collapse;width:100%;font-size:13px;min-width:760px}
 th{font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--panel2);position:sticky;top:0}
@@ -72,6 +77,7 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
   <p class="lede">Move the sliders below and watch every year change — the same model behind the growth blueprint's five-year plan and fifteen-year long view, simplified so you can explore it here instead of in the spreadsheet. Nothing you do here changes the actual proforma; it's a sandbox for "what if."</p>
 
   <div class="grid">
+    <div class="col">
     <div class="card">
       <h2>Change it</h2>
 
@@ -117,10 +123,80 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
       </label>
     </div>
 
-    <div>
+    <div class="card">
+      <h2>Pay for it</h2>
+      <p class="cardnote">Rates are the live September 2026 market. The full source list is in the blueprint.</p>
+
+      <label><b>Borrowed ($)</b><span class="v" id="v_loan">$150,000</span>
+        <input type="range" id="loan" min="0" max="400000" step="10000" value="150000">
+        <div class="note">$150,000 is the sweet spot on an SBA 7(a): 85% guaranteed at or below it, 75% above, and the fee steps from 2% to 3% at $150,001.</div>
+      </label>
+
+      <label><b>Interest rate</b><span class="v" id="v_rate">12.75%</span>
+        <input type="range" id="rate" min="0" max="20" step="0.25" value="12.75">
+        <div class="note">0% = manufacturer equipment promo. 8.5% = independent equipment lender. 9.5% = a bank loan behind the Louisiana state guaranty. 12.75% = the SBA 7(a) cap at this size.</div>
+      </label>
+
+      <label><b>Years to pay it back</b><span class="v" id="v_term">10</span>
+        <input type="range" id="term" min="1" max="15" step="1" value="10">
+      </label>
+
+      <label><b>Equity sold ($) &mdash; 0 keeps the company whole</b><span class="v" id="v_eq">$0</span>
+        <input type="range" id="eq" min="0" max="600000" step="25000" value="0">
+        <div class="note">Move this off zero and the table below prices the same dollars borrowed instead, side by side.</div>
+      </label>
+
+      <label><b>Share of the company given for it</b><span class="v" id="v_eqp">20%</span>
+        <input type="range" id="eqp" min="5" max="49" step="1" value="20">
+      </label>
+
+      <label><b>Year the investor comes in</b><span class="v" id="v_eqy">2</span>
+        <input type="range" id="eqy" min="1" max="10" step="1" value="2">
+        <div class="note">Every month the two-crew run rate is real is a month the same cheque costs less of the company.</div>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>What it sells for</h2>
+      <p class="cardnote">Multiples below are medians from recorded transactions, not opinion &mdash; BizBuySell (945 landscaping sales) and the IBBA Market Pulse (203 closed deals, Q1 2026).</p>
+
+      <label><b>Multiple under $2M revenue (&times; owner's cash)</b><span class="v" id="v_msde">2.3</span>
+        <input type="range" id="msde" min="1.5" max="3.5" step="0.1" value="2.3">
+        <div class="note">Landscaping median 2.30&times;, lower quartile 1.70&times;, upper quartile 3.01&times;.</div>
+      </label>
+
+      <label><b>Multiple at $2M&ndash;$5M (&times; EBITDA)</b><span class="v" id="v_meb1">4.0</span>
+        <input type="range" id="meb1" min="2.5" max="6" step="0.1" value="4.0">
+      </label>
+
+      <label><b>Multiple above $5M (&times; EBITDA)</b><span class="v" id="v_meb2">6.0</span>
+        <input type="range" id="meb2" min="4" max="9" step="0.1" value="6.0">
+        <div class="note">Private-equity add-on range is 5&ndash;8&times;. They want roughly $3M of revenue and $500K of EBITDA before they will look.</div>
+      </label>
+
+      <label><b>Manager's salary that replaces the owner</b><span class="v" id="v_mgr">$85,000</span>
+        <input type="range" id="mgr" min="50000" max="150000" step="5000" value="85000">
+        <div class="note">A financial buyer deducts this before applying the multiple. A buyer who will run it himself does not. It is the single biggest reason the same company gets two very different prices.</div>
+      </label>
+
+      <label><b>Ned's profits interest (% above the hurdle)</b><span class="v" id="v_pi">15%</span>
+        <input type="range" id="pi" min="0" max="35" step="1" value="15">
+        <div class="note">A share of value created above what the company is worth today &mdash; and nothing at all below it.</div>
+      </label>
+
+      <label><b>The hurdle &mdash; today's value ($)</b><span class="v" id="v_hur">$170,000</span>
+        <input type="range" id="hur" min="0" max="600000" step="10000" value="170000">
+      </label>
+    </div>
+    </div>
+
+    <div class="results">
       <div class="stats" id="stats"></div>
+      <p class="verdict" id="verdict"></p>
       <div class="tbl-wrap"><table id="tbl"></table></div>
-      <p class="foot">This page mirrors the growth blueprint's "Long range 15-yr" tab (crews, revenue, gross profit, overhead, operating profit, cash, and value with vs. without the Drain Check service book), simplified into one growth-rate slider instead of the workbook's year-by-year gates. Value multiples are judgment (2.7x owner cash with a recurring service book, 2.1x without — BizBuySell's category median of 2.46x SDE is the cited anchor), not a guarantee of what a buyer would pay. Years 1–2 assume both crews launch together, funded by the initial investment above, at the LF/day and price you set. Every number here is computed live in your browser from the sliders — nothing is sent anywhere, and this page does not connect to the real Scag Scapes data.</p>
+      <p class="foot">This page mirrors the growth blueprint's model: the operating plan, the capital that pays for it, and what the company is worth at the end. The growth pace is simplified into one slider instead of the workbook's year-by-year gates, so the two will not agree to the dollar. Most years they land within a few percent; in a year where the crew count falls on the other side of a hiring threshold they can differ by 10&ndash;15%, because an admin, an operations manager and an estimator each get hired at a whole-person step rather than gradually. Those steps are real &mdash; you cannot hire two thirds of an estimator &mdash; which is also why operating profit dips in the year a crew is added. <b>The workbook is the authoritative version;</b> this page is for exploring, not for quoting.
+      <br><br><b>On the multiples.</b> They are not one number, because the multiple depends on who is allowed to buy you. Under $2M of revenue the buyer is an individual using an SBA loan and the price is set by what his debt service can carry &mdash; a narrow 2.0&ndash;2.3&times; band on owner's cash no matter how good the business is. Over $2M the buyer pool becomes searchers and regional platforms at around 4&times; EBITDA. Over $5M it becomes private equity at 5&ndash;8&times;. Medians are from BizBuySell's closed sales (945 landscaping businesses, 2021&ndash;2025) and the IBBA Market Pulse (203 closed transactions, Q1 2026). Worth knowing: a recurring service book does <i>not</i> lift the earnings multiple at this size &mdash; pest control, the most contract-recurring home service there is, sells at 2.04&times; owner's cash, below landscaping's 2.30&times;. Growing is what moves the multiple.
+      <br><br><b>On the equity comparison.</b> Both paths are priced on the identical dollars, so the difference is the real cost of selling a share rather than borrowing. Nothing here is a valuation, an offer, or investment advice &mdash; it is arithmetic on assumptions you can change, and a CPA and an attorney should price and paper anything anyone actually signs. Every number is computed live in your browser; nothing is sent anywhere, and this page does not connect to the real Scag Scapes data.</p>
     </div>
   </div>
 </div>
@@ -130,8 +206,12 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
   const $=id=>document.getElementById(id);
   const fmt=n=>'$'+Math.round(n).toLocaleString('en-US');
   const fmtK=n=>{const a=Math.abs(n);const s=n<0?'-':'';return a>=1e6?s+'$'+(a/1e6).toFixed(2)+'M':s+'$'+Math.round(a/1000).toLocaleString('en-US')+'K'};
-  const ids=['price','lfday','plan','mkt','draw','grow','max','inv','years'];
-  const labels={price:v=>'$'+v,lfday:v=>v,plan:v=>v+'%',mkt:v=>v+'%',draw:v=>fmt(v),grow:v=>v,max:v=>v,inv:v=>fmt(v),years:v=>v};
+  const ids=['price','lfday','plan','mkt','draw','grow','max','inv','years',
+             'loan','rate','term','eq','eqp','eqy',
+             'msde','meb1','meb2','mgr','pi','hur'];
+  const labels={price:v=>'$'+v,lfday:v=>v,plan:v=>v+'%',mkt:v=>v+'%',draw:v=>fmt(v),grow:v=>v,max:v=>v,inv:v=>fmt(v),years:v=>v,
+    loan:v=>fmt(v),rate:v=>v+'%',term:v=>v,eq:v=>fmt(v),eqp:v=>v+'%',eqy:v=>v,
+    msde:v=>(+v).toFixed(1),meb1:v=>(+v).toFixed(1),meb2:v=>(+v).toFixed(1),mgr:v=>fmt(v),pi:v=>v+'%',hur:v=>fmt(v)};
 
   // fixed constants ported from the workbook (Assumptions tab defaults)
   const CREW_SIZE=3, PAID_HOURS=173, WAGE=22.5, LEAD_PREM=3, BURDEN=0.14, WORK_DAYS=21;
@@ -142,7 +222,6 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
   const CREW2_TOTAL_EQUIP=138500, EQUIP_LOAN_MO=2300; // Equipment plan tab
   const EQUIP_OWNED_TODAY=60000, EQUIP_LIFE_YRS=7;
   const TAKE_OUT_PCT=0.60;
-  const VALUE_MULT_WITH=2.7, VALUE_MULT_WITHOUT=2.1;
   const ADMIN_PER_CREW=2, OPSMGR_PER_CREW=4, ESTIMATOR_PER_CREW=3;
   const ADMIN_SALARY=48000, OPSMGR_SALARY=72000, ESTIMATOR_SALARY=58000;
   const OPENING_CASH=25000;
@@ -153,7 +232,10 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
           instRev=[], totRev=[], crewLabor=[], matCost=[], visitCost=[], gross=[],
           admin=[], opsmgr=[], estimator=[], staffCost=[], yardRent=[], equipBought=[],
           equipCost=[], equipBook=[], equipDebt=[], otherOH=[], opProfit=[], takenOut=[],
-          cash=[], ownerCash=[], ownerCashNoPlan=[], valueWith=[], valueWithout=[];
+          cash=[], ownerCash=[], ownerCashNoPlan=[],
+          ebitda=[], mult=[], basis=[], band=[], ev=[], created=[], nedCut=[], charlie=[],
+          prefOwed=[], pctWorth=[], invGets=[], keepSold=[], debtLeft=[], intPaid=[], keepBorrow=[],
+          debtWins=[], loanPay=[], dscr=[];
 
     for(let n=1;n<=N;n++){
       crews[n] = n<=2 ? 2 : Math.min(inp.max, crews[n-1] + inp.grow);
@@ -200,16 +282,47 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
       ownerCash[n] = opProfit[n] + inp.draw*12;
       ownerCashNoPlan[n] = ownerCash[n] - planRev[n] + visitCost[n];
 
-      valueWith[n] = Math.max(0, ownerCash[n])*VALUE_MULT_WITH + cash[n] - equipDebt[n];
-      valueWithout[n] = Math.max(0, ownerCashNoPlan[n])*VALUE_MULT_WITHOUT + cash[n] - equipDebt[n];
+      // --- what a buyer pays, by the size band that decides who the buyer IS
+      ebitda[n] = ownerCash[n] - inp.mgr;
+      mult[n]  = totRev[n] >= 5e6 ? inp.meb2 : totRev[n] >= 2e6 ? inp.meb1 : inp.msde;
+      basis[n] = totRev[n] >= 2e6 ? ebitda[n] : ownerCash[n];
+      band[n]  = totRev[n] >= 5e6 ? 'PE add-on' : totRev[n] >= 2e6 ? 'searcher / platform' : 'individual buyer';
+      ev[n]    = Math.max(0, basis[n])*mult[n] + cash[n] - equipDebt[n];
+
+      // --- Ned's profits interest: value created above the hurdle, nothing below it
+      created[n] = Math.max(0, ev[n] - inp.hur);
+      nedCut[n]  = created[n]*(inp.pi/100);
+      charlie[n] = ev[n] - nedCut[n];
+
+      // --- path A: sell equity.  path B: borrow the same dollars.
+      const live = inp.eq > 0 && n >= inp.eqy;
+      prefOwed[n]  = live ? inp.eq*Math.pow(1+0.08, n-inp.eqy+1) : 0;
+      pctWorth[n]  = live ? ev[n]*(inp.eqp/100) : 0;
+      invGets[n]   = Math.max(prefOwed[n], pctWorth[n]);
+      keepSold[n]  = ev[n] - invGets[n];
+      debtLeft[n]  = live ? Math.max(0, inp.eq*(1-(n-inp.eqy+1)/inp.term)) : 0;
+      intPaid[n]   = (intPaid[n-1]||0) + (live ? Math.max(0, inp.eq*(1-(n-inp.eqy)/inp.term))*(inp.rate/100) : 0);
+      keepBorrow[n]= ev[n] - debtLeft[n] - intPaid[n];
+      debtWins[n]  = keepBorrow[n] - keepSold[n];
+
+      // --- the actual raise (separate from the equity comparison), for the payment line
+      const rMo = (inp.rate/100)/12, nMo = inp.term*12;
+      loanPay[n] = inp.loan<=0 ? 0 : (rMo===0 ? inp.loan/nMo : inp.loan*rMo/(1-Math.pow(1+rMo,-nMo)));
+      dscr[n]    = loanPay[n]>0 ? (opProfit[n]+inp.draw*12)/(loanPay[n]*12) : null;
     }
-    return {crews,lf,price,jobs,planBook,totRev,gross,staffCost,otherOH,opProfit,cash,ownerCash,valueWith,valueWithout};
+    return {crews,lf,price,jobs,planBook,totRev,gross,staffCost,otherOH,opProfit,cash,ownerCash,
+            ebitda,mult,basis,band,ev,created,nedCut,charlie,
+            invGets,keepSold,debtLeft,intPaid,keepBorrow,debtWins,loanPay,dscr};
   }
 
   function render(){
     const inp = {
       price:+$('price').value, lfday:+$('lfday').value, plan:+$('plan').value, mkt:+$('mkt').value,
-      draw:+$('draw').value, grow:+$('grow').value, max:+$('max').value, inv:+$('inv').value, years:+$('years').value
+      draw:+$('draw').value, grow:+$('grow').value, max:+$('max').value, inv:+$('inv').value, years:+$('years').value,
+      loan:+$('loan').value, rate:+$('rate').value, term:+$('term').value,
+      eq:+$('eq').value, eqp:+$('eqp').value, eqy:+$('eqy').value,
+      msde:+$('msde').value, meb1:+$('meb1').value, meb2:+$('meb2').value,
+      mgr:+$('mgr').value, pi:+$('pi').value, hur:+$('hur').value
     };
     ids.forEach(id=>{$('v_'+id).textContent = labels[id](inp[id])});
 
@@ -222,10 +335,19 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
       '<div class="stat"><b>'+fmtK(m.totRev[Y])+'</b><span>total revenue, year '+Y+'</span></div>'+
       '<div class="stat"><b>'+fmtK(m.opProfit[Y])+'</b><span>operating profit, year '+Y+'</span></div>'+
       '<div class="stat"><b>'+fmtK(m.cash[Y])+'</b><span>cash on hand, year '+Y+'</span></div>'+
-      '<div class="stat"><b>'+fmtK(m.valueWith[Y])+'</b><span>value with the service book</span></div>'+
-      '<div class="stat"><b>'+fmtK(m.valueWithout[Y])+'</b><span>value without it</span></div>';
+      '<div class="stat"><b>'+fmtK(m.ev[Y])+'</b><span>what it sells for &mdash; '+m.mult[Y].toFixed(1)+'&times;, '+m.band[Y]+'</span></div>'+
+      '<div class="stat"><b>'+fmtK(m.charlie[Y])+'</b><span>Charlie\'s share of that</span></div>';
+
+    const dw = m.debtWins[Y], eqLive = (+$('eq').value) > 0;
+    $('verdict').innerHTML = !eqLive
+      ? '<b>No equity sold.</b> Charlie owns all of it. Move the &ldquo;equity sold&rdquo; slider to price a real offer against the same dollars borrowed.'
+        + (m.loanPay[1]>0 ? ' Borrowing '+fmt(+$('loan').value)+' at '+$('rate').value+'% over '+$('term').value+' years costs <b>'+fmt(m.loanPay[1])+' a month</b>. The plan covers that '+(m.dscr[1]||0).toFixed(1)+'&times; over in year one &mdash; but a lender tests the coverage ratio against <i>filed tax returns</i>, not a projection, so the number that gets underwritten is today\'s, not this one. SBA\'s floor is 1.1&times;; a bank credit committee wants 1.25&times;.' : '')
+      : (dw >= 0
+          ? '<b>Borrowing wins by '+fmtK(dw)+' by year '+Y+'.</b> The same '+fmt(+$('eq').value)+', taken as debt instead of equity, leaves Charlie '+fmtK(dw)+' better off &mdash; because interest stops when the loan is paid, and a percentage of the company never does.'
+          : '<b>Selling equity wins by '+fmtK(-dw)+' by year '+Y+'</b> at these settings. That only happens when the company is worth less than the debt would have cost &mdash; check whether you believe the growth numbers that produced it.');
 
     const rows = [
+      ['~THE BUSINESS', null],
       ['Crews running', n=>m.crews[n].toFixed(1)],
       ['Plan customers under contract', n=>Math.round(m.planBook[n]).toLocaleString()],
       ['Total revenue', n=>fmt(m.totRev[n])],
@@ -234,15 +356,34 @@ tr.total td{font-weight:600;border-top:2px solid var(--line)}
       ['Other overhead', n=>fmt(m.otherOH[n])],
       ['Operating profit', n=>fmt(m.opProfit[n])],
       ['Cash on hand, year end', n=>fmt(m.cash[n])],
-      ['Value WITH the service book', n=>fmt(m.valueWith[n])],
-      ['Value WITHOUT the service book', n=>fmt(m.valueWithout[n])],
+      ['~WHAT IT SELLS FOR', null],
+      ["Owner's cash (SDE)", n=>fmt(m.ownerCash[n])],
+      ['EBITDA, after a manager\'s salary', n=>fmt(m.ebitda[n])],
+      ['Who the buyer is at this size', n=>m.band[n]],
+      ['Multiple that size band earns', n=>m.mult[n].toFixed(1)+'\u00d7'],
+      ['WHAT THE COMPANY IS WORTH', n=>fmt(m.ev[n])],
+      ['~SPLITTING IT UP', null],
+      ['Value created above the hurdle', n=>fmt(m.created[n])],
+      ["Ned's profits interest", n=>fmt(m.nedCut[n])],
+      ["Charlie's share", n=>fmt(m.charlie[n])],
+      ['~BORROW OR SELL EQUITY', null],
+      ['Investor would walk away with', n=>fmt(m.invGets[n])],
+      ['Charlie keeps &mdash; having sold equity', n=>fmt(m.keepSold[n])],
+      ['Loan still owed', n=>fmt(m.debtLeft[n])],
+      ['Interest paid, running total', n=>fmt(m.intPaid[n])],
+      ['Charlie keeps &mdash; having borrowed', n=>fmt(m.keepBorrow[n])],
+      ['BORROWING WINS BY', n=>fmt(m.debtWins[n])],
     ];
     let html = '<thead><tr><th>Year</th>';
     for(let n=1;n<=Y;n++) html += '<th>'+n+'</th>';
     html += '</tr></thead><tbody>';
-    rows.forEach((r,i)=>{
-      const cls = (i===6||i===8||i===9) ? ' class="total"' : '';
-      html += '<tr'+cls+'><td>'+r[0]+'</td>';
+    rows.forEach(r=>{
+      if(r[1]===null){
+        html += '<tr class="hd"><td colspan="'+(Y+1)+'">'+r[0].slice(1)+'</td></tr>';
+        return;
+      }
+      const strong = r[0]===r[0].toUpperCase();
+      html += '<tr'+(strong?' class="total"':'')+'><td>'+r[0]+'</td>';
       for(let n=1;n<=Y;n++) html += '<td>'+r[1](n)+'</td>';
       html += '</tr>';
     });
