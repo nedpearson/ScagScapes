@@ -18,7 +18,19 @@ supabase secrets set RESEND_API_KEY=re_... --project-ref cscowglyrgxqxwcnftzt
 # 4. Web search in Research
 supabase secrets set BRAVE_API_KEY=... --project-ref cscowglyrgxqxwcnftzt
 
-# 5. Weather cron (post-rain campaigns) — Supabase Dashboard → Integrations → Cron:
+# 5. Field ops (optional): private photo bucket for breakdown photos
+#    Supabase Dashboard → Storage → new PRIVATE bucket `breakdown-photos`; the intake stores names only until this exists.
+#    Approval limits / recovery weights / crew cost: update ss_tenants.settings (approval, recovery_weights, crew_cost_per_hour).
+
+# 6. Web push (optional) — browser/PWA push for breakdowns, approvals, rentals due
+npx web-push generate-vapid-keys
+supabase secrets set VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... --project-ref cscowglyrgxqxwcnftzt
+#    then: bell → "Enable push on this device" on each phone. Test: POST /push/test
+
+# 7. Rentals-due cron (return reminders) — Supabase Dashboard → Integrations → Cron, daily 6am:
+#    select net.http_get('https://cscowglyrgxqxwcnftzt.supabase.co/functions/v1/ss-api/rentals/due', headers => '{"x-tenant":"demo","apikey":"<anon>"}'::jsonb);
+
+# 8. Weather cron (post-rain campaigns) — Supabase Dashboard → Integrations → Cron:
 #    every 6h: select net.http_post('https://cscowglyrgxqxwcnftzt.supabase.co/functions/v1/ss-api/rain/check', '{}'::jsonb, headers => '{"x-tenant":"demo","apikey":"<anon>"}'::jsonb);
 
 # Redeploy the function after any secret change:

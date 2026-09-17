@@ -1,13 +1,13 @@
 // ---------- sourcing: rentals · materials · fuel · research · notifications ----------
 // Live sources: Home Depot rental pricing/inventory (undocumented apionline endpoint, no auth), AAA state/metro fuel page (static HTML),
 // Rokrunner Shopify products.json, OpenStreetMap Overpass/Nominatim. Everything else is a verified-on-date rate card or a flagged estimate.
-import { sb, json, fmt, event, dLabel, send, integrations } from "./core.ts";
+import { sb, json, fmt, event, dLabel, send, integrations, pushAll } from "./core.ts";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128 Safari/537.36";
 const HD_STORES = "0357,0375";
 export const miles = (a: number, b: number, c: number, d: number) => { const R = 3958.8, dLat = (c - a) * Math.PI / 180, dLon = (d - b) * Math.PI / 180; const x = Math.sin(dLat / 2) ** 2 + Math.cos(a * Math.PI / 180) * Math.cos(c * Math.PI / 180) * Math.sin(dLon / 2) ** 2; return Math.round(R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)) * 10) / 10; };
 const BR = { lat: 30.4515, lng: -91.1871 };
 async function fetchT(url: string, opts: RequestInit = {}, ms = 12000) { const c = new AbortController(); const id = setTimeout(() => c.abort(), ms); try { return await fetch(url, { ...opts, signal: c.signal, headers: { "user-agent": UA, ...(opts.headers || {}) } }); } finally { clearTimeout(id); } }
-async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); }
+async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); pushAll(t, title, body, ref).catch(() => {}); }
 
 // ---- Home Depot live rental pricing + inventory ----
 export async function hdRental(cat: string, sub: string) {
@@ -97,8 +97,8 @@ export async function sourcing(path: string, req: Request, url: URL, body: any, 
     for (const c of match) {
       const vs = (vendors ?? []).filter((v: any) => v.brand === c.brand).map((v: any) => ({ ...v, distance: miles(lat, lng, v.lat, v.lng) }));
       if (c.brand === "Home Depot" && c.ext_cat) { const k = c.ext_cat + "/" + c.ext_sub; hdCache[k] = hdCache[k] || await hdRental(c.ext_cat, c.ext_sub); const live = hdCache[k];
-        for (const v of vs) { const l = live[v.ext_id]; const rc = l?.day ? l : c; rows.push({ id: c.id, item: c.item, model: c.model, category: c.category, brand: c.brand, vendor: v.name, vendor_id: v.id, phone: v.phone, distance: v.distance, day: rc.day, week: rc.week, month: rc.month, deposit: rc.deposit ?? c.deposit, total: rentalTotal(rc, days), live: !!l?.day, available: l?.available ?? null, out: l?.out ?? null, verified: true, reserve: "web", url: v.meta?.url, source: c.source_url }); } }
-      else for (const v of vs) rows.push({ id: c.id, item: c.item, model: c.model, category: c.category, brand: c.brand, vendor: v.name, vendor_id: v.id, phone: v.phone, distance: v.distance, day: c.day, week: c.week, month: c.month, deposit: c.deposit, total: rentalTotal(c, days), live: false, available: null, verified: c.verified, reserve: "quote", url: v.meta?.url, source: c.source_url, notes: c.notes });
+        for (const v of vs) { const l = live[v.ext_id]; const rc = l?.day ? l : c; rows.push({ id: c.id, item: c.item, model: c.model, category: c.category, brand: c.brand, vendor: v.name, vendor_id: v.id, phone: v.phone, distance: v.distance, day: rc.day, week: rc.week, month: rc.month, deposit: rc.deposit ?? c.deposit, total: rentalTotal(rc, days), live: !!l?.day, available: l?.available ?? null, out: l?.out ?? null, verified: true, reserve: "web", status: l?.day ? "PROVIDER_POSTED" : "STALE", checked_at: l?.day ? new Date().toISOString() : c.checked_at, url: v.meta?.url, source: c.source_url }); } }
+      else for (const v of vs) rows.push({ id: c.id, item: c.item, model: c.model, category: c.category, brand: c.brand, vendor: v.name, vendor_id: v.id, phone: v.phone, distance: v.distance, day: c.day, week: c.week, month: c.month, deposit: c.deposit, total: rentalTotal(c, days), live: false, available: null, verified: c.verified, reserve: "quote", status: "CALL_TO_CONFIRM", price_status: c.verified ? "PROVIDER_POSTED" : "ESTIMATED", checked_at: c.checked_at, url: v.meta?.url, source: c.source_url, notes: c.notes });
     }
     rows.sort((a, b) => (a.total ?? 1e9) - (b.total ?? 1e9) || a.distance - b.distance);
     const fired = await evalAlerts(t, { rentals: rows });
