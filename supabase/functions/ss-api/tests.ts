@@ -58,8 +58,10 @@ Deno.test("performance: small samples are flagged insufficient; fill rate and qu
 });
 
 // ---- PRODUCT MANDATE guards (ai.ts / evals.ts) ----
-import { pick, strip, parseJson } from "./ai.ts";
-import { FIXTURES, score, baseline } from "./evals.ts";
+// These must be dynamic: core.ts builds its Supabase client at module scope, and a static import would be
+// hoisted above the Deno.env.set() at the top of this file, so the client would be constructed with no URL.
+const { pick, strip, parseJson } = await import("./ai.ts");
+const { FIXTURES, score, baseline } = await import("./evals.ts");
 const { smsIntent } = await import("./core.ts");
 Deno.test("router ignores providers without a configured key and returns null when nothing is usable", () => {
   const rows: any = [{ provider: "openai", model_id: "x", enabled: true, task_weights: { general: 0.9 }, cost_out_per_m: 1 }];
