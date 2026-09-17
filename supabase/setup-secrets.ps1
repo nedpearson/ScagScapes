@@ -13,6 +13,16 @@ $ErrorActionPreference = "Stop"
 $REF  = "cscowglyrgxqxwcnftzt"
 $BASE = "https://$REF.supabase.co/functions/v1/ss-api"
 
+# Windows PowerShell 5.1 defaults to TLS 1.0 and has no -SkipHttpErrorCheck; both are handled below so this
+# script runs the same on 5.1 and on PowerShell 7.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+function Get-Status([string]$Url, [hashtable]$Headers) {
+  try { (Invoke-WebRequest -Uri $Url -Headers $Headers -UseBasicParsing -Method Get).StatusCode }
+  catch {
+    if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "request failed: $($_.Exception.Message)" }
+  }
+}
+
 Write-Host ""
 Write-Host "Scag Scapes Command - secret setup" -ForegroundColor Cyan
 Write-Host "-----------------------------------"
@@ -60,8 +70,8 @@ supabase functions deploy ss-api --no-verify-jwt --project-ref $REF
 # --- 5. prove the gate works ------------------------------------------------------------------------------------
 Write-Host ""
 Write-Host "Checking the gate..." -ForegroundColor Cyan
-$noKey = try { (Invoke-WebRequest -Uri "$BASE/export" -SkipHttpErrorCheck).StatusCode } catch { $_.Exception.Response.StatusCode.value__ }
-$withKey = try { (Invoke-WebRequest -Uri "$BASE/export" -Headers @{ "x-ss-key" = $ADMIN } -SkipHttpErrorCheck).StatusCode } catch { $_.Exception.Response.StatusCode.value__ }
+$noKey   = Get-Status "$BASE/export" @{}
+$withKey = Get-Status "$BASE/export" @{ "x-ss-key" = $ADMIN }
 Write-Host ("  /export without the key : {0}  (expect 401)" -f $noKey)
 Write-Host ("  /export with the key    : {0}  (expect 200)" -f $withKey)
 
@@ -88,5 +98,5 @@ if ($providerVar) {
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
 Write-Host "Shadow mode (model drafts, the regex reply still sends, drafts logged for accept/reject):" -ForegroundColor Gray
-Write-Host "  update ss_tenants set settings = settings || '{\"ai_sms\":\"shadow\"}'::jsonb where id = 'demo';" -ForegroundColor Gray
+Write-Host '  update ss_tenants set settings = settings || ''{"ai_sms":"shadow"}''::jsonb where id = ''demo'';' -ForegroundColor Gray
 Write-Host ""
