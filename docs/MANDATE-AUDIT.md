@@ -48,5 +48,32 @@ supabase db push            # applies migrations/scagscapes_mandate_1.sql
 supabase secrets set ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=...   # any subset
 supabase functions deploy ss-api --no-verify-jwt --project-ref cscowglyrgxqxwcnftzt
 curl .../ss-api/ai/audit      # the eight questions, machine-readable
-curl -X POST .../ss-api/ai/evals/run   # score every enabled model before trusting any of them
+curl -X POST .../ss-api/ai/evals/run -H "x-ss-key: $SS_ADMIN_KEY"   # score every enabled model before trusting any of them
 ```
+
+---
+
+## Security sweep — September 17, 2026 (v1.5.1)
+
+Run before any provider key is set, because two of the findings convert to money or to customer data the day one is. Method: repo credential scan (tree + history), Postgres grant/RLS/SECURITY DEFINER verification, live probes against the deployed function, Vercel project settings. A finding is listed only where the exploit path was verified open end to end.
+
+**Verdict: no real data was ever at risk.** `demo` is the only tenant and every record in it is seed fiction (225-555-xxxx). Two paths were open and are now closed; one was latent and would have opened on the first real tenant.
+
+| # | Finding | Verified how | Status |
+|---|---|---|---|
+| 1 | Three views bypassed tenant RLS | `ss_kpis`, `ss_estimate_accuracy`, `ss_ai_learning` held full `anon` grants with no `security_invoker`, so they read base tables as owner. The publishable key from `index.html:455` returned `booked_value`/`collected`. | **Fixed** — `scagscapes_security_1.sql`. `ss_ai_learning` now returns `42501`; `ss_kpis` returns only rows the caller's policies allow. |
+| 2 | `/export` unauthenticated | `GET /export` with zero headers → 200, 99,191 bytes, 26 tables. | **Fixed** — gated on `SS_ADMIN_KEY` (`ai.ts`, `guard()`), returns 401. |
+| 3 | `/ai/evals/run`, `POST /ai/models` unauthenticated | Same path; inert only because no provider key exists. A stranger could otherwise loop the eval suite on Scag's card, or enable a model nobody chose. | **Fixed** — same guard, 401. |
+| 4 | `api_key` plaintext, compared with `!==` | `core.ts:73`. Timing-variable. | **Open, low** — fix in the commit that creates the first real tenant. |
+| 5 | Mutable `search_path` on two functions | Both SECURITY INVOKER, so no privilege gain. | **Fixed** — pinned to `public, pg_temp`. |
+
+**Deliberately left open:** the rest of the API is unauthenticated for tenant `demo` (`core.ts:73`). That is the design — `demo` is a public sandbox with a `/reset`, and gating it would break the clickable demo. The standing rule this creates: **no real tenant is ever named `demo`, and no real record is ever written to it.**
+
+**Dismissed as noise, with the reason:**
+- 4× `rls_enabled_no_policy` (INFO) on `ss_ai_recommendations`, `ss_embeddings`, `ss_ai_evals`, `ss_push_subscriptions` — `anon`/`authenticated` hold **zero grants** on all four and PostgREST returns `42501`. Postgres checks grants before RLS, so this is the correct end state, not a gap.
+- `vector` extension in `public` (WARN) — no exposure path.
+- `ss_reset_demo` / `ss_seed_demo` are SECURITY DEFINER but `executable_by: NONE` with `search_path` pinned.
+
+**Checked and clean:** repo credential scan found no service-role JWT, Postgres URL or provider key in the tree or in history (`.gitignore` covers `.env`, `.env.*`; `.env` never committed) — the only key in the repo is the publishable one, public by design. `/export` is tenant-scoped and omits `ss_tenants`, so no `api_key` can leak through it. Vercel preview deployments are SSO-protected. `auth.users` is empty **and** no policy keys on `auth.uid()`, so there is no inert-policy trap waiting.
+
+**Note on the public repo:** `github.com/nedpearson/ScagScapes` is public. No credentials are exposed, but the full route table and `docs/PRODUCT-MANDATE.md` are readable by anyone, which is how someone would find an open endpoint without guessing. Worth a deliberate decision given the NDA and watermarking around the Charlie package.

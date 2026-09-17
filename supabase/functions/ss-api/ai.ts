@@ -77,9 +77,16 @@ const SYSTEM = (task: Task) => `You are the operations assistant inside Scag Sca
 Rules that are not negotiable: (1) use ONLY the context provided; if something is not in the context say "not in records" - never invent prices, availability, appointments, suppliers or addresses; (2) you recommend, the app decides - never state a final price or total, the pricing engine owns those; (3) return JSON with keys: recommendation (string), reasoning (string), confidence (0-1), assumptions (string[]), alternatives (string[]), evidence (string[] naming which context fields you relied on).`;
 
 // ---------- routes ----------
+// Security sweep 2026-09-17: the demo tenant is deliberately open (it is a sandbox with /reset), but the two
+// classes of route that are bulk or billable are gated regardless of tenant: /export moves every record in one
+// call, and /ai/evals/run + POST /ai/models spend provider credits and decide which model handles real work.
+// Set with: supabase secrets set SS_ADMIN_KEY=...   Unset => these routes are closed to everyone.
+const guard = (req: Request) => { const k = Deno.env.get("SS_ADMIN_KEY"); return !!k && req.headers.get("x-ss-key") === k; };
+const denied = () => json({ error: "key required", detail: "send header x-ss-key; this route is gated even on the demo tenant" }, 401);
+
 export async function ai(path: string, req: Request, url: URL, body: any, t: string): Promise<Response | null> {
   if (path === "/ai/models" && req.method === "GET") return json({ configured: configured(), models: await models(t), suite_version: SUITE_VERSION });
-  if (path === "/ai/models" && req.method === "POST") { const row = { tenant_id: t, provider: body.provider, model_id: body.model_id, enabled: body.enabled ?? true, capabilities: body.capabilities ?? ["text"], privacy_tier: body.privacy_tier ?? "vendor-processed", cost_in_per_m: Number(body.cost_in_per_m ?? 0), cost_out_per_m: Number(body.cost_out_per_m ?? 0), task_weights: body.task_weights ?? { general: 0.5 } }; const { data, error } = await sb.from("ss_ai_models").upsert(row, { onConflict: "tenant_id,provider,model_id" }).select().single(); if (error) return json({ error: error.message }, 400); return json(data); }
+  if (path === "/ai/models" && req.method === "POST") { if (!guard(req)) return denied(); const row = { tenant_id: t, provider: body.provider, model_id: body.model_id, enabled: body.enabled ?? true, capabilities: body.capabilities ?? ["text"], privacy_tier: body.privacy_tier ?? "vendor-processed", cost_in_per_m: Number(body.cost_in_per_m ?? 0), cost_out_per_m: Number(body.cost_out_per_m ?? 0), task_weights: body.task_weights ?? { general: 0.5 } }; const { data, error } = await sb.from("ss_ai_models").upsert(row, { onConflict: "tenant_id,provider,model_id" }).select().single(); if (error) return json({ error: error.message }, 400); return json(data); }
 
   if (path === "/ai/recommend" && req.method === "POST") {
     const task: Task = body.task ?? "general"; const ctx = await context(t, body.ref ?? {});
@@ -99,6 +106,7 @@ export async function ai(path: string, req: Request, url: URL, body: any, t: str
 
   // versioned evaluation suite on real Scag tasks - promote a model only when this says so (§3, §12)
   if (path === "/ai/evals/run" && req.method === "POST") {
+    if (!guard(req)) return denied();
     const rows = (await models(t)).filter((m) => m.enabled && (configured() as any)[m.provider]); if (!rows.length) return json({ error: "no enabled model with a configured key" }, 400);
     const results: any[] = [];
     for (const m of rows) for (const f of FIXTURES) { let s = 0, ms = 0, e: string | null = null, text = "";
@@ -136,6 +144,7 @@ export async function ai(path: string, req: Request, url: URL, body: any, t: str
   if (path === "/ai/search" && req.method === "GET") { const q = url.searchParams.get("q") ?? ""; if (!q) return json({ error: "q required" }, 400); return json({ q, hits: await retrieve(t, q, Number(url.searchParams.get("k") ?? 8)) }); }
   // portability: everything Scag owns, exportable in one call (§1, §15)
   if (path === "/export" && req.method === "GET") {
+    if (!guard(req)) return denied();
     const tables = ["ss_leads", "ss_messages", "ss_quotes", "ss_jobs", "ss_job_actuals", "ss_payments", "ss_bookings", "ss_campaigns", "ss_events", "ss_automations", "ss_vendors", "ss_rate_cards", "ss_reservations", "ss_equipment_assets", "ss_equipment_events", "ss_breakdowns", "ss_job_requirements", "ss_labor_rates", "ss_estimate_versions", "ss_provider_feedback", "ss_market_rates", "ss_ai_models", "ss_ai_recommendations", "ss_ai_evals", "ss_properties", "ss_embeddings"];
     const out: Record<string, any> = { exported_at: new Date().toISOString(), tenant: t, app_version: VERSION, suite_version: SUITE_VERSION, tables: {} };
     for (const tb of tables) { const { data, error } = await sb.from(tb).select("*").eq("tenant_id", t); out.tables[tb] = error ? { error: error.message } : data; }
