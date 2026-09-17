@@ -11,12 +11,16 @@
 //   POST /rain/check                  {forecast?: number[], fire?: 'pre'|'post'} -> campaign
 //   POST /payments/webhook            {job_id, kind, amount, method} -> ledger + stage
 //   POST /reset                       reseed demo tenant
+//   AI layer (ai.ts): GET /ai/models · POST /ai/models · POST /ai/recommend · POST /ai/recommendations/:id/decision · GET /ai/recommendations · GET /ai/learning
+//                     POST /ai/evals/run · GET /ai/evals · POST /jobs/:id/actuals · GET /estimate-accuracy · GET /export · GET /ai/audit
+//   Governed by docs/PRODUCT-MANDATE.md - price() stays the only pricing authority; AI recommends, humans decide.
 // Auth: header x-ss-key = ss_tenants.api_key. Tenant "demo" needs no key (public demo).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType, payLink, integrations } from "./core.ts";
 import { sourcing } from "./sourcing.ts";
 import { fieldops } from "./fieldops.ts";
 import { resources } from "./resources.ts";
+import { ai } from "./ai.ts";
 
 // ---------- stage machine ----------
 async function advance(t: string, job: any, dir: number, settings: any) {
@@ -146,6 +150,7 @@ Deno.serve(async (req) => {
 
     if (path === "/reset" && req.method === "POST") { if (t !== "demo") return json({ error: "reset is demo-only" }, 403); await sb.rpc("ss_reset_demo"); return json({ reset: true }); }
 
+    const ares = await ai(path, req, url, body, t); if (ares) return ares;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
     return json({ error: "not found", path }, 404);

@@ -22,6 +22,10 @@ Live data sources and their honesty level:
 
 Refresh rate cards/material prices: re-run the research checklist in `supabase/migrations/README.md` and update `checked_at`.
 
+## AI layer (v1.5) - PRODUCT MANDATE
+
+`functions/ss-api/ai.ts` + `evals.ts`, migration `scagscapes_mandate_1.sql`. Model-agnostic router over a per-tenant registry (`ss_ai_models`: anthropic / openai / gemini, task weights, cost, capabilities); every recommendation carries evidence, confidence and the retrieved context and is written to `ss_ai_recommendations` with the human decision and outcome; a versioned eval suite (`/ai/evals/run` → `ss_ai_evals`) gates model promotion; `ss_job_actuals` + `ss_estimate_accuracy` close the estimate-vs-actual loop; `/export` dumps everything the tenant owns. `strip()` guarantees no AI number is ever authoritative - `price()` stays the only pricing engine. Governing document: `../docs/PRODUCT-MANDATE.md`; audit: `../docs/MANDATE-AUDIT.md`. No provider is enabled until its key is set (`supabase secrets set ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GEMINI_API_KEY=...`).
+
 ## Field ops module (v1.3)
 
 `functions/ss-api/fieldops.ts` — equipment registry, breakdown intake (idempotent by `client_id`), rule-assisted triage (no vision model; labeled as such), ranked recovery options with configurable weights (`ss_tenants.settings.recovery_weights`), call/reserve/book decision, approval guardrails (`settings.approval`), call packages + outcome capture (→ `LIVE_VERIFIED`), job requirements/readiness/loadout, labor rates with audited changes, estimate versions with discount impact. Routes and the capability table are in `../docs/FIELD-OPS.md`.

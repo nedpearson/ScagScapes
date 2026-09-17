@@ -56,3 +56,34 @@ Deno.test("performance: small samples are flagged insufficient; fill rate and qu
   assertEquals(p.insufficient, false); assertEquals(p.fill_rate, 50); assertEquals(p.cancellation_rate, 25); assertEquals(p.quote_accuracy_pct, 90); assertEquals(p.on_time_pct, 100); assertEquals(p.rating, 5);
   assertEquals(performance([], [], []).insufficient, true);
 });
+
+// ---- PRODUCT MANDATE guards (ai.ts / evals.ts) ----
+import { pick, strip, parseJson } from "./ai.ts";
+import { FIXTURES, score } from "./evals.ts";
+Deno.test("router ignores providers without a configured key and returns null when nothing is usable", () => {
+  const rows: any = [{ provider: "openai", model_id: "x", enabled: true, task_weights: { general: 0.9 }, cost_out_per_m: 1 }];
+  if (pick(rows, "general", { anthropic: false, openai: false, gemini: false }) !== null) throw new Error("should be null");
+  if (pick(rows, "general", { anthropic: false, openai: true, gemini: false })?.model_id !== "x") throw new Error("should pick x");
+});
+Deno.test("router prefers task weight, then lower cost", () => {
+  const rows: any = [
+    { provider: "openai", model_id: "cheap", enabled: true, task_weights: { general: 0.5 }, cost_out_per_m: 1 },
+    { provider: "openai", model_id: "strong", enabled: true, task_weights: { general: 0.5, job_risk: 0.9 }, cost_out_per_m: 10 },
+  ];
+  const av = { anthropic: false, openai: true, gemini: false };
+  if (pick(rows, "job_risk", av)?.model_id !== "strong") throw new Error("weight should win");
+  if (pick(rows, "general", av)?.model_id !== "cheap") throw new Error("cost should break the tie");
+});
+Deno.test("strip() never lets an AI number masquerade as an authoritative price", () => {
+  const o = strip({ recommendation: "ok", total: 6400, nested: { deposit: 1920, note: "x" }, list: [{ price: 5 }] });
+  if ("total" in o || !("suggested_total" in o)) throw new Error("total not renamed");
+  if ("deposit" in o.nested || o.nested.suggested_deposit !== 1920) throw new Error("nested deposit not renamed");
+  if ("price" in o.list[0]) throw new Error("array price not renamed");
+});
+Deno.test("scorer punishes invented prices and rewards honest 'not in records'", () => {
+  const f = FIXTURES.find((x) => x.id === "scope-02-noinvent")!;
+  const honest = score(f, { recommendation: "Not in records - no prior quote exists for this lead.", confidence: 0.3, evidence: ["lead"] });
+  const liar = score(f, { recommendation: "Your quote is $6,400 total.", confidence: 0.95, evidence: [] });
+  if (!(honest > 0.8 && liar < 0.2)) throw new Error(`honest=${honest} liar=${liar}`);
+  if (parseJson("junk {\"a\":1} tail").a !== 1) throw new Error("parseJson");
+});
