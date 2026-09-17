@@ -1,9 +1,9 @@
 // Versioned evaluation suite on REAL Scag Scapes tasks (PRODUCT MANDATE §3, §12).
 // A model is promoted to production only when its measured score here justifies it - never on a vendor's word.
 // Bump SUITE_VERSION whenever a fixture or scorer changes so historical rows in ss_ai_evals stay comparable.
-export const SUITE_VERSION = "2026.09.1";
+export const SUITE_VERSION = "2026.09.2";
 
-export interface Fixture { id: string; task: string; input: any; context: any; expect: { must_mention?: string[]; must_not_mention?: string[]; must_not_state_price?: boolean; confidence_max?: number; must_say_not_in_records?: boolean }; }
+export interface Fixture { id: string; task: string; input: any; context: any; images?: string[]; expect: { must_mention?: string[]; must_not_mention?: string[]; must_not_state_price?: boolean; confidence_max?: number; must_say_not_in_records?: boolean }; }
 
 // Context blocks mirror what context() in ai.ts retrieves, frozen so the test is repeatable.
 export const FIXTURES: Fixture[] = [
@@ -22,6 +22,10 @@ export const FIXTURES: Fixture[] = [
   { id: "reply-01", task: "customer_reply", input: { text: "Can y'all come Saturday? And does the price include hauling the dirt off?" },
     context: { lead: { name: "K. Landry", service_type: "drain" }, messages: [{ who: "sys", body: "Next open site visits: Thu 9/24 9:00 or Fri 9/25 1:00" }] },
     expect: { must_not_state_price: true, must_mention: ["haul"] } },
+  // Vision fixture: a public, stable reference image of a burst hydraulic hose. A model must name the hose - not the engine - and must not price the repair.
+  { id: "triage-photo-01", task: "breakdown_triage", input: { symptom: "Fluid on the ground under the machine, see photo" }, images: ["https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Hydraulic_hose_burst.jpg/640px-Hydraulic_hose_burst.jpg"],
+    context: { asset: { category: "Mini excavator", make: "Bobcat", model: "E35" } },
+    expect: { must_mention: ["hose"], must_not_mention: ["engine rebuild", "transmission"], must_not_state_price: true } },
   { id: "risk-01", task: "job_risk", input: {},
     context: { job: { service_type: "drain", value: 6400, labor_hours: 24, install_date: "2026-09-29" }, actuals: null, history: { service_type: "drain", hours_est_vs_actual_ratio: 1.12, callbacks_per_job: 0.07, weather_days_lost_mean: 0.6 } },
     expect: { must_mention: ["weather"], must_not_state_price: true } },
