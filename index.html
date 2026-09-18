@@ -365,6 +365,7 @@ tr.best td{background:var(--ok-soft)}
     <button data-act="nav" data-id="rain">Rain trigger</button>
     <button data-act="nav" data-id="billing">Billing &amp; reviews</button>
     <button data-act="nav" data-id="customers">Customers</button>
+    <button data-act="nav" data-id="marketing">Marketing &amp; leads</button>
     <button data-act="nav" data-id="properties">Properties</button>
     <button data-act="nav" data-id="sourcing">Sourcing</button>
     <button data-act="nav" data-id="equipment">Equipment</button>
@@ -406,6 +407,7 @@ tr.best td{background:var(--ok-soft)}
   <section class="section" id="s-rain"></section>
   <section class="section" id="s-billing"></section>
   <section class="section" id="s-customers"></section>
+  <section class="section" id="s-marketing"></section>
   <section class="section" id="s-properties"></section>
   <section class="section" id="s-sourcing"></section>
   <section class="section" id="s-equipment"></section>
@@ -1405,6 +1407,136 @@ Object.assign(A,{
   'kpi.open':key=>metricDrawer(key),
   'prov.open':id=>{const [kind,rid]=id.split('|'); if(kind==='lead')leadDrawer(rid); else if(kind==='job')jobDrawer(rid);},
 });
+
+
+// ---------- Marketing & leads ----------
+// The point of this page is that no number on it is a claim. Every channel figure is computed from Scag's own
+// rows by ss_channel_performance; the market figure sits beside it, sourced and dated, and never touches the
+// arithmetic. "We are paying above market" is therefore something Charlie can check, not something the software
+// asserts. A channel that spent money and produced nothing is shown loudest, because that is the row that costs.
+const MK = { channels: [], spend: [], voice: null, loading: false };
+async function loadMarketing(){
+  MK.loading = true; renderMarketing();
+  try{ const [c, sp] = await Promise.all([api('/marketing/channels'), api('/marketing/spend')]);
+       MK.channels = c.channels || []; MK.spend = sp || []; }
+  catch(e){ toast('Marketing: ' + e.message) }
+  try{ MK.voice = await api('/voice/performance') }catch(e){ MK.voice = null }
+  MK.loading = false; renderMarketing();
+}
+const money = n => n === null || n === undefined ? '—' : '$' + Math.round(n).toLocaleString();
+const mkPill = c => {
+  if (c.spend > 0 && c.leads === 0) return '<span class="pill warn">spent, no leads</span>';
+  if (c.cost_per_lead !== null && c.benchmark && c.benchmark.cpl) return c.cost_per_lead <= c.benchmark.cpl
+      ? '<span class="pill ok">at or below market</span>' : '<span class="pill warn">above market</span>';
+  if (c.billing === 'organic' && c.leads) return '<span class="pill ok">free</span>';
+  return '<span class="pill mute">—</span>';
+};
+function renderMarketing(){
+  const ch = MK.channels;
+  const paid = ch.filter(c => c.spend > 0);
+  const spend = paid.reduce((a,c)=>a+c.spend,0);
+  const leads = ch.reduce((a,c)=>a+c.leads,0);
+  const won   = ch.reduce((a,c)=>a+c.won,0);
+  const booked= ch.reduce((a,c)=>a+c.booked_value,0);
+  const v = MK.voice && MK.voice.performance || {};
+  $('#s-marketing').innerHTML = `
+  <div class="kpis" style="grid-template-columns:repeat(4,1fr)">
+    <div class="kpi drill" data-act="kpi.open" data-id="cost_per_lead"><div class="l">Cost per lead</div><div class="v mono">${paid.length?money(spend/Math.max(paid.reduce((a,c)=>a+c.leads,0),1)):'—'}</div><div class="d">paid channels only</div></div>
+    <div class="kpi drill" data-act="kpi.open" data-id="cost_per_booked_job"><div class="l">Cost per booked job</div><div class="v mono">${won?money(spend/won):'—'}</div><div class="d">${won} won from paid</div></div>
+    <div class="kpi drill" data-act="kpi.open" data-id="roas"><div class="l">Return on ad spend</div><div class="v">${spend?(booked/spend).toFixed(1)+'x':'—'}</div><div class="d">contract value, not profit</div></div>
+    <div class="kpi drill" data-act="kpi.open" data-id="unattributed"><div class="l">Leads with no source</div><div class="v">${leads?Math.round(100*ch.filter(c=>c.key==='unattributed').reduce((a,c)=>a+c.leads,0)/leads)+'%':'—'}</div><div class="d">every one is a hole in reporting</div></div>
+  </div>
+
+  <div class="panel"><header><h3>Channels</h3><span class="hint">measured from Scag's rows · market figures beside, never inside, the maths</span></header>
+  <div class="tbl-wrap"><table><thead><tr><th>Channel</th><th>Leads</th><th>Won</th><th>Spend</th><th>Cost / lead</th><th>Cost / job</th><th>Return</th><th></th></tr></thead><tbody>
+  ${MK.loading && !ch.length ? '<tr><td colspan="8" class="empty">Loading…</td></tr>' : ch.map(c=>`
+    <tr class="click" data-act="mk.channel" data-id="${c.key}">
+      <td><b>${esc(c.label)}</b><div style="font-size:11.5px;color:var(--ink3)">${esc(c.billing.replace('_',' '))} ${mkPill(c)}</div></td>
+      <td>${c.leads||'—'}</td><td>${c.won||'—'}</td>
+      <td class="mono">${c.spend?money(c.spend):'—'}</td>
+      <td class="mono">${c.cost_per_lead===null?'—':money(c.cost_per_lead)}</td>
+      <td class="mono">${c.cost_per_booked_job===null?'—':money(c.cost_per_booked_job)}</td>
+      <td class="mono">${c.roas===null?'—':c.roas.toFixed(1)+'x'}</td>
+      <td style="text-align:right"><button class="btn sm">Open</button></td></tr>`).join('')}
+  </tbody></table></div></div>
+
+  <div class="panel"><header><h3>Answering the phone</h3><span class="hint">${MK.voice&&MK.voice.configured?'webhook secret set':'not connected yet'}</span></header><div class="body">
+    ${MK.voice ? `<div class="row-actions" style="gap:22px;flex-wrap:wrap">
+      <div><div class="l" style="font-size:11px;color:var(--ink3)">CALLS</div><div class="mono" style="font-size:22px">${v.calls||0}</div></div>
+      <div><div class="l" style="font-size:11px;color:var(--ink3)">BECAME A LEAD</div><div class="mono" style="font-size:22px">${v.became_lead||0}</div></div>
+      <div><div class="l" style="font-size:11px;color:var(--ink3)">HANDED TO CHARLIE</div><div class="mono" style="font-size:22px">${v.handed_to_human||0}</div></div>
+      <div><div class="l" style="font-size:11px;color:var(--ink3)">COST</div><div class="mono" style="font-size:22px">${money(v.total_cost||0)}</div></div>
+      <div><div class="l" style="font-size:11px;color:var(--ink3)">COST / LEAD CAPTURED</div><div class="mono" style="font-size:22px">${v.cost_per_lead_captured?money(v.cost_per_lead_captured):'—'}</div></div>
+    </div>
+    ${MK.voice.note?`<p style="font-size:12.5px;color:var(--ink3);margin:10px 0 0">${esc(MK.voice.note)}</p>`:''}
+    <p style="font-size:12.5px;color:var(--ink2);margin:10px 0 0">Point the provider's server URL at <code>${esc(MK.voice.webhook_url||'')}</code>. The agent gathers and texts back two open slots; it never books, quotes or promises — a person confirms, and <span class="mono">price()</span> stays the only thing that prices.</p>`
+    : '<div class="empty">Voice answering is not reachable right now.</div>'}
+  </div></div>
+
+  <div class="panel"><header><h3>Spend recorded</h3><button class="btn sm primary" data-act="mk.spend.new">Add spend</button></header>
+  <div class="tbl-wrap"><table><thead><tr><th>Channel</th><th>Period</th><th>Amount</th><th>Clicks</th><th>Their lead count</th><th>Note</th></tr></thead><tbody>
+  ${MK.spend.length?MK.spend.map(r=>`<tr><td>${esc(r.channel_key)}</td><td>${r.period_start} → ${r.period_end}</td><td class="mono">${money(r.amount)}</td><td>${r.clicks??'—'}</td><td>${r.leads_reported??'—'}</td><td style="font-size:12px;color:var(--ink3)">${esc(r.note||'')}</td></tr>`).join('')
+    :'<tr><td colspan="6" class="empty">No spend recorded. Cost per lead cannot be computed without it.</td></tr>'}
+  </tbody></table></div></div>`;
+}
+function mkChannelDrawer(key){
+  const c = MK.channels.find(x=>x.key===key); if(!c) return;
+  const b = c.benchmark;
+  openDrawer(`<div class="dhead"><div><h3>${esc(c.label)}</h3><span class="sub">${c.leads} leads · ${c.won} won · ${money(c.spend)} spent</span></div><button class="x" data-act="close" aria-label="Close">✕</button></div>
+  <div class="dbody prov">
+    ${c.spend>0&&c.leads===0?`<div class="fact" style="border-left:3px solid var(--crit);padding-left:10px"><b>This channel has spent money and produced nothing.</b><p style="margin:4px 0 0">${money(c.spend)} with zero attributed leads. Either the tracking is not wired up or the campaign is not working — both are worth an hour today.</p></div>`:''}
+    <div class="fact"><b>Measured, from Scag's own records</b>
+      <div class="srcrow"><span>Leads</span><span class="mono">${c.leads}</span></div>
+      <div class="srcrow"><span>Quoted</span><span class="mono">${c.quoted}</span></div>
+      <div class="srcrow"><span>Won</span><span class="mono">${c.won}</span></div>
+      <div class="srcrow"><span>Lead → won</span><span class="mono">${c.lead_to_won_pct===null?'—':c.lead_to_won_pct+'%'}</span></div>
+      <div class="srcrow"><span>Average time to first reply</span><span class="mono">${c.avg_response_seconds===null?'—':c.avg_response_seconds+'s'}</span></div>
+      <div class="srcrow"><span>Booked value</span><span class="mono">${money(c.booked_value)}</span></div>
+      <div class="srcrow"><span>Spend</span><span class="mono">${money(c.spend)}</span></div>
+      <div class="srcrow"><span>Cost per lead</span><span class="mono">${c.cost_per_lead===null?'—':money(c.cost_per_lead)}</span></div>
+      <div class="srcrow"><span>Cost per booked job</span><span class="mono">${c.cost_per_booked_job===null?'—':money(c.cost_per_booked_job)}</span></div>
+      <div class="srcrow"><span>Return on spend</span><span class="mono">${c.roas===null?'—':c.roas.toFixed(2)+'x'}</span></div>
+      <p style="margin:8px 0 0;font-size:11.5px;color:var(--ink3)">Source of truth: <code>ss_channel_performance</code> over <code>ss_leads</code>, <code>ss_jobs</code> and <code>ss_ad_spend</code>.</p></div>
+    ${b?`<div class="fact"><b>What the market pays</b><p style="margin:4px 0 0">${b.cpl!==null?`<span class="mono">${money(b.cpl)}</span> per lead${b.cpc?`, <span class="mono">$${b.cpc}</span> per click`:''}`:'—'}</p>
+      <p style="margin:6px 0 0;font-size:11.5px;color:var(--ink3)">${esc(b.source||'')}</p>
+      ${c.vs_benchmark?`<p style="margin:8px 0 0"><b>${esc(c.vs_benchmark)}</b></p>`:''}
+      <p style="margin:6px 0 0;font-size:11.5px;color:var(--ink3)">This figure is a reference only. It is never used in any calculation on this page.</p></div>`:''}
+    ${c.notes?`<div class="fact"><b>How this channel behaves</b><p style="margin:4px 0 0">${esc(c.notes)}</p></div>`:''}
+    ${c.disputed?`<div class="fact"><b>Disputed leads</b><p style="margin:4px 0 0">${c.disputed} marked for credit.</p></div>`:''}
+  </div>`);
+}
+function mkSpendSheet(){
+  const opts = MK.channels.filter(c=>c.billing!=='organic').map(c=>`<option value="${c.key}">${esc(c.label)}</option>`).join('');
+  const today = new Date(), first = new Date(today.getFullYear(), today.getMonth(), 1);
+  const iso2 = d => d.toISOString().slice(0,10);
+  openSheet(`<header><h3>Record ad spend</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody">
+  <p style="font-size:12.5px;color:var(--ink3);margin:0 0 10px">Enter what the platform actually billed. Cost per lead and return on spend are computed from this — without it they cannot exist.</p>
+  <div class="form">
+    <div><label class="fl" for="sp_ch">Channel</label><select id="sp_ch">${opts}</select></div>
+    <div><label class="fl" for="sp_amt">Amount ($)</label><input id="sp_amt" type="number" step="any"></div>
+    <div><label class="fl" for="sp_from">Period start</label><input id="sp_from" type="date" value="${iso2(first)}"></div>
+    <div><label class="fl" for="sp_to">Period end</label><input id="sp_to" type="date" value="${iso2(today)}"></div>
+    <div><label class="fl" for="sp_clicks">Clicks (optional)</label><input id="sp_clicks" type="number"></div>
+    <div><label class="fl" for="sp_leads">Leads the platform reported (optional)</label><input id="sp_leads" type="number"></div>
+    <div class="full"><label class="fl" for="sp_note">Note</label><input id="sp_note" placeholder="Campaign, audience, anything you will want to remember"></div>
+  </div>
+  <div class="row-actions" style="margin-top:12px"><button class="btn primary" data-act="mk.spend.save">Save</button><button class="btn ghost" data-act="close">Cancel</button></div></div>`);
+}
+Object.assign(A,{
+  'mk.channel': key => mkChannelDrawer(key),
+  'mk.spend.new': () => mkSpendSheet(),
+  'mk.spend.save': () => run(async()=>{
+    const amt = +$('#sp_amt').value;
+    if(!amt){ toast('Enter the amount'); return }
+    await api('/marketing/spend', { channel_key: $('#sp_ch').value, amount: amt,
+      period_start: $('#sp_from').value, period_end: $('#sp_to').value,
+      clicks: +$('#sp_clicks').value || null, leads_reported: +$('#sp_leads').value || null,
+      note: $('#sp_note').value || null, entered_by: 'app' });
+    closeAll(); await loadMarketing(); toast('Saved — cost per lead and return recomputed');
+  }, 'Spend'),
+});
+R.marketing = () => { renderMarketing(); loadMarketing(); };
+TITLES.marketing = ['Marketing & leads', () => 'Every lead, where it came from, what it cost and what it became'];
 
 outboxSync();
 
