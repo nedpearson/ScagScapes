@@ -86,7 +86,15 @@ main{padding:18px 26px 40px;min-width:0}
 .topbar .right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .demo-tag{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--soil);background:var(--soil-soft);padding:5px 8px;border-radius:3px;font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
-.kpi{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:12px 14px;min-width:0}
+.kpi{background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:12px 14px;min-width:0;position:relative}
+.kpi.drill{cursor:pointer;transition:border-color .12s,box-shadow .12s}
+.kpi.drill:hover{border-color:var(--water);box-shadow:0 2px 10px rgba(31,90,110,.13)}
+.kpi.drill:after{content:'\2197';position:absolute;top:9px;right:11px;font-size:12px;color:var(--ink3);opacity:.55}
+.kpi.drill:hover:after{opacity:1;color:var(--water)}
+.prov{font-size:12.5px;line-height:1.55}
+.prov code{background:var(--line);padding:1px 5px;border-radius:4px;font-size:11.5px}
+.prov .srcrow{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)}
+.prov .srcrow.click{cursor:pointer}.prov .srcrow.click:hover{background:var(--line)}
 .kpi .l{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);font-weight:600}
 .kpi .v{font-family:"Barlow Condensed";font-size:30px;font-weight:600;line-height:1.05;margin-top:4px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .kpi .d{font-size:12px;color:var(--ink3);margin-top:2px}
@@ -607,7 +615,7 @@ async function boot(){
   else S=loadLocal()||seed();
   if(!S.ui||!S.q||!S.settings||!S.settings.tpl)S=seed();
 }
-async function refresh(){UIKEEP=S.ui;if(LIVE()){try{await loadLive()}catch(e){toast('Live reload failed: '+e.message)}}renderAll()}
+async function refresh(){ loadMetrics();UIKEEP=S.ui;if(LIVE()){try{await loadLive()}catch(e){toast('Live reload failed: '+e.message)}}renderAll()}
 
 /* ---------- helpers ---------- */
 let toastT;function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2800)}
@@ -624,13 +632,19 @@ const modeChip=()=>LIVE()?`<span class="pill ok" title="${esc(LIVE_STATUS.msg)} 
 
 /* ---------- KPIs ---------- */
 function renderKpis(){
+  if(MET.loaded&&MET.list.length){
+    const by={}; MET.list.forEach(m=>by[m.key]=m);
+    $('#kpis').innerHTML=KPI_ORDER.filter(k=>by[k]).slice(0,6).map(k=>metCard(by[k])).join('');
+      } else {
+  
   const booked=S.jobs.filter(j=>j.stage>0).reduce((a,j)=>a+j.value,0);
   const collected=S.payments.reduce((a,p)=>a+p.amount,0);
   const resp=S.leads.filter(l=>l.resp>0);const avg=resp.length?Math.round(resp.reduce((a,l)=>a+l.resp,0)/resp.length):0;
   const dec=S.leads.filter(l=>['won','lost'].includes(l.status));const close=dec.length?Math.round(S.leads.filter(l=>l.status==='won').length/dec.length*100):0;
   const q=S.jobs.length;
-  $('#kpis').innerHTML=[['Calls answered','100%','was ~45% before text-back','up'],['Speed to lead',avg+'s','competitors: none stated',avg<=60?'up':'dn'],['Quotes out < 24h',`${q} / ${q}`,'competitors: 3–5 days','up'],['Close rate',close+'%','+19 pts vs. no follow-up','up'],['Booked, 30d',fmt(booked),'collected '+fmt(collected),''],['Google reviews',`${S.reviewsTotal} ★${S.rating}`,'from 0 in 90 days','up']]
+  $('#kpis').innerHTML=[['Leads answered','—','sample data - connect the backend for the measured number',''],['Speed to lead',avg+'s','competitors: none stated',avg<=60?'up':'dn'],['Quotes out < 24h','—','sample data - needs saved quotes to measure',''],['Close rate',close+'%','+19 pts vs. no follow-up','up'],['Booked, 30d',fmt(booked),'collected '+fmt(collected),''],['Google reviews',`${S.reviewsTotal} ★${S.rating}`,'from 0 in 90 days','up']]
    .map(k=>`<div class="kpi"><div class="l">${k[0]}</div><div class="v ${k[0].includes('Booked')?'mono':''}">${k[1]}</div><div class="d ${k[3]}">${k[2]}</div></div>`).join('');
+    }
   $$('[data-count="leads"]').forEach(e=>e.textContent=openLeads().length||'');
   $$('[data-count="jobs"]').forEach(e=>e.textContent=S.jobs.filter(j=>j.stage>0&&j.stage<4).length||'');
   $$('[data-count="breakdowns"]').forEach(e=>e.textContent=(typeof FO!=='undefined'&&FO.breakdowns||[]).filter(x=>!['resolved','cancelled'].includes(x.status)).length||'');
@@ -1348,6 +1362,49 @@ Object.assign(A,{
 });
 R.properties=()=>{renderProperties();loadProperties()};
 TITLES.properties=['Properties',()=>'Soil, lot, elevation and what the drainage actually did — per address'];
+
+
+// ---------- Provenance: every headline number can show its work ----------
+// The strip used to be computed in this file, and two of the six were constants - "Calls answered" was the
+// literal string "100%" and "Quotes out < 24h" was q/q, which is 100% however the business actually performs.
+// Numbers now come from GET /explain, which computes them from rows server-side, and every tile opens the exact
+// records behind it. Offline (no backend) the tiles fall back to local sample math and say so.
+const MET = { list: [], loaded: false, error: '' };
+const KPI_ORDER = ['answered','speed','quotes_fast','close_rate','booked','collected','outstanding','reviews'];
+async function loadMetrics(){
+  if(!LIVE()){MET.loaded=false;return}
+  try{const r=await api('/explain');MET.list=r.metrics||[];MET.loaded=true;MET.error=''}
+  catch(e){MET.loaded=false;MET.error=e.message}
+  renderKpis();
+}
+function metCard(m){
+  const val=m.display==null?'—':m.display;
+  const sub=m.no_data?esc(m.no_data.slice(0,58)):`${m.n} of ${m.d} · ${m.tables.join(', ')}`;
+  return `<div class="kpi drill" data-act="kpi.open" data-id="${m.key}" title="Click to see every record behind this number"><div class="l">${esc(m.label)}</div><div class="v ${/\$/.test(val)?'mono':''}">${esc(val)}</div><div class="d">${sub}</div></div>`;
+}
+async function metricDrawer(key){
+  openDrawer(`<div class="dhead"><h3>Loading…</h3></div>`);
+  let d; try{ d=await api('/explain/'+key) }catch(e){ openDrawer(`<div class="dhead"><h3>Could not load</h3><button class="x" data-act="close">✕</button></div><div class="dbody"><div class="empty">${esc(e.message)}</div></div>`); return }
+  const rows=(d.rows||[]);
+  const drillable=r=>r.kind==='lead'||r.kind==='job';
+  openDrawer(`<div class="dhead"><div><h3>${esc(d.label)}</h3><span class="sub">${esc(String(d.display))} · computed ${new Date(d.computed_at).toLocaleTimeString()}</span></div><button class="x" data-act="close" aria-label="Close">✕</button></div>
+  <div class="dbody prov">
+    <div class="fact"><b>What it means</b><p style="margin:4px 0 0">${esc(d.definition)}</p></div>
+    <div class="fact"><b>How it is calculated</b><p style="margin:4px 0 0"><code>${esc(d.formula)}</code></p>
+      <p style="margin:6px 0 0;color:var(--ink3)">Source of truth: ${d.tables.map(t=>`<code>${esc(t)}</code>`).join(' + ')} in Supabase · endpoint <code>GET /explain/${esc(d.key)}</code></p></div>
+    ${d.caveat?`<div class="fact" style="border-left:3px solid var(--paint);padding-left:10px"><b>What it does not account for</b><p style="margin:4px 0 0">${esc(d.caveat)}</p></div>`:''}
+    ${d.no_data?`<div class="empty">${esc(d.no_data)}</div>`:`
+    <h4 style="margin:14px 0 2px">Every record behind it (${rows.length})</h4>
+    <p style="font-size:11.5px;color:var(--ink3);margin:0 0 6px">${rows.some(drillable)?'Click any row to open that record.':'These rows come from a table without its own drawer yet.'}</p>
+    ${rows.map(r=>`<div class="srcrow ${drillable(r)?'click':''}" ${drillable(r)?`data-act="prov.open" data-id="${r.kind}|${r.id}"`:''}>
+        <div><b>${esc(r.title||'(unnamed)')}</b><div style="font-size:11.5px;color:var(--ink3)">${esc(r.detail||'')}</div></div>
+        <div class="mono" style="white-space:nowrap;align-self:center">${esc(String(r.contributes))}</div></div>`).join('')}`}
+  </div>`);
+}
+Object.assign(A,{
+  'kpi.open':key=>metricDrawer(key),
+  'prov.open':id=>{const [kind,rid]=id.split('|'); if(kind==='lead')leadDrawer(rid); else if(kind==='job')jobDrawer(rid);},
+});
 
 outboxSync();
 

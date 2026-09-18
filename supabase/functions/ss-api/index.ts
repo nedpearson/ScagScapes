@@ -11,6 +11,8 @@
 //   POST /rain/check                  {forecast?: number[], fire?: 'pre'|'post'} -> campaign
 //   POST /payments/webhook            {job_id, kind, amount, method} -> ledger + stage
 //   POST /reset                       reseed demo tenant
+//   Provenance (explain.ts): GET /explain - every headline metric with definition, formula and source tables
+//                            GET /explain/:metric - the same, plus every row the number was computed from
 //   AI layer (ai.ts): GET /ai/models · POST /ai/models · POST /ai/recommend · POST /ai/recommendations/:id/decision · GET /ai/recommendations · GET /ai/learning
 //                     POST /ai/evals/run · GET /ai/evals · POST /jobs/:id/actuals · GET /estimate-accuracy · GET /export · GET /ai/audit
 //   Governed by docs/PRODUCT-MANDATE.md - price() stays the only pricing authority; AI recommends, humans decide.
@@ -22,6 +24,7 @@ import { sourcing } from "./sourcing.ts";
 import { fieldops } from "./fieldops.ts";
 import { resources } from "./resources.ts";
 import { ai, recommend } from "./ai.ts";
+import { explain } from "./explain.ts";
 import { PRICE_RE } from "./evals.ts";
 
 // ---------- stage machine ----------
@@ -164,6 +167,7 @@ Deno.serve(async (req) => {
 
     if (path === "/reset" && req.method === "POST") { if (t !== "demo") return json({ error: "reset is demo-only" }, 403); await sb.rpc("ss_reset_demo"); return json({ reset: true }); }
 
+    const xres = await explain(path, req, url, t); if (xres) return xres;
     const ares = await ai(path, req, url, body, t); if (ares) return ares;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
