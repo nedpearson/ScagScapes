@@ -11,6 +11,9 @@
 //   POST /rain/check                  {forecast?: number[], fire?: 'pre'|'post'} -> campaign
 //   POST /payments/webhook            {job_id, kind, amount, method} -> ledger + stage
 //   POST /reset                       reseed demo tenant
+//   Marketing (marketing.ts): GET /marketing/channels - measured performance per channel vs published benchmark
+//                              GET/POST /marketing/spend - what was spent, by channel and period
+//                              POST /webhooks/lead - attributed inbound lead (utm / gclid / LSA)
 //   Provenance (explain.ts): GET /explain - every headline metric with definition, formula and source tables
 //                            GET /explain/:metric - the same, plus every row the number was computed from
 //   AI layer (ai.ts): GET /ai/models · POST /ai/models · POST /ai/recommend · POST /ai/recommendations/:id/decision · GET /ai/recommendations · GET /ai/learning
@@ -25,6 +28,7 @@ import { fieldops } from "./fieldops.ts";
 import { resources } from "./resources.ts";
 import { ai, recommend } from "./ai.ts";
 import { explain } from "./explain.ts";
+import { marketing } from "./marketing.ts";
 import { PRICE_RE } from "./evals.ts";
 
 // ---------- stage machine ----------
@@ -119,7 +123,18 @@ Deno.serve(async (req) => {
 
     if (path === "/quote" && req.method === "POST") {
       const st = body.service_type || "drain"; const p = price(st, body.inputs || {});
-      if (!body.send) return json({ ...p, service_type: st });
+      if (!body.send) {
+        // A priced quote used to vanish unless it was sent in the same minute, which is why ss_quotes sat empty
+        // and "quotes out under 24h" had nothing to measure. Pricing against a real lead now saves a draft, so
+        // the funnel (priced -> sent -> won) is a fact in the database rather than a memory. Pricing with no
+        // lead attached is still just a calculator and saves nothing.
+        if (!body.lead_id) return json({ ...p, service_type: st, saved: false, reason: "no lead attached - nothing to save a draft against" });
+        const { data: draft } = await sb.from("ss_quotes").upsert({
+          tenant_id: t, lead_id: body.lead_id, service_type: st, inputs: body.inputs || {}, lines: p.rows, bom: p.bom,
+          summary: p.summary, total: p.total, material_cost: p.material_cost, deposit_pct: settings.deposit_pct ?? 30, status: "draft",
+        }, { onConflict: "tenant_id,lead_id,service_type,status" }).select().single();
+        return json({ ...p, service_type: st, saved: true, quote_id: draft?.id, status: "draft" });
+      }
       const lead = body.lead_id ? (await sb.from("ss_leads").select("*").eq("id", body.lead_id).single()).data : null; if (!lead) return json({ error: "lead_id required to send" }, 400);
       const { data: quote } = await sb.from("ss_quotes").insert({ tenant_id: t, lead_id: lead.id, service_type: st, inputs: body.inputs || {}, lines: p.rows, bom: p.bom, summary: p.summary, total: p.total, material_cost: p.material_cost, deposit_pct: settings.deposit_pct ?? 30, status: "sent" }).select().single();
       const { data: job } = await sb.from("ss_jobs").insert({ tenant_id: t, lead_id: lead.id, quote_id: quote.id, name: lead.name, service_type: st, scope: p.summary, value: p.total, material_cost: p.material_cost, labor_hours: p.labor_hours, stage: 0, stage_history: [iso(new Date())] }).select().single();
@@ -168,6 +183,7 @@ Deno.serve(async (req) => {
     if (path === "/reset" && req.method === "POST") { if (t !== "demo") return json({ error: "reset is demo-only" }, 403); await sb.rpc("ss_reset_demo"); return json({ reset: true }); }
 
     const xres = await explain(path, req, url, t); if (xres) return xres;
+    const mres = await marketing(path, req, url, body, t); if (mres) return mres;
     const ares = await ai(path, req, url, body, t); if (ares) return ares;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;

@@ -45,6 +45,22 @@ export const METRICS: Record<string, Metric> = {
     definition: "Booked work that has not been paid for yet.",
     formula: "sum(job.value for stage > 0) - sum(payments)",
     caveat: "A job mid-build legitimately sits here; it is not all overdue money." },
+  cost_per_lead: { key: "cost_per_lead", label: "Cost per lead", tables: ["ss_ad_spend", "ss_leads"],
+    definition: "What it cost, on average, to make the phone ring once - across every paid channel.",
+    formula: "sum(ad spend) / count(leads from paid channels)",
+    caveat: "Referral, organic and repeat leads are excluded from both sides. Including them would flatter the number by averaging free leads into paid ones." },
+  cost_per_booked_job: { key: "cost_per_booked_job", label: "Cost per booked job", tables: ["ss_ad_spend", "ss_leads", "ss_jobs"],
+    definition: "What it cost in advertising to win one job. The number that actually decides whether a channel is worth running.",
+    formula: "sum(ad spend) / count(won leads from paid channels)",
+    caveat: "A channel with few leads can show a wild number on one lucky win. Read it next to the lead count, not alone." },
+  roas: { key: "roas", label: "Return on ad spend", tables: ["ss_ad_spend", "ss_leads", "ss_jobs"],
+    definition: "Booked contract value produced for every dollar of advertising.",
+    formula: "sum(booked value from paid-channel leads) / sum(ad spend)",
+    caveat: "Contract value, not profit. A 10x return at 45% gross margin is 4.5x in gross profit and less again after overhead." },
+  unattributed: { key: "unattributed", label: "Leads with no source", tables: ["ss_leads"],
+    definition: "Leads the system could not tie to a channel. Every one of these is a hole in the ad reporting.",
+    formula: "count(leads where ad_channel is null or 'unattributed') / count(all leads)",
+    caveat: "High is not a disaster on day one - it means tracking is not finished. It IS a disaster if it stays high while spend rises." },
   reviews: { key: "reviews", label: "Reviews", tables: ["ss_reviews"],
     definition: "Count of reviews collected and their average star rating.",
     formula: "count(*) and avg(stars)",
@@ -143,6 +159,37 @@ export async function compute(t: string, key: string) {
       rows: pay.map((p) => ({ id: p.job_id, kind: "job", title: nameById.get(p.job_id) ?? "(job not found)",
         detail: `${p.kind} · ${p.method} · ${new Date(p.created_at).toLocaleDateString()}`,
         contributes: "$" + Math.round(Number(p.amount)).toLocaleString(), value: Number(p.amount) })) };
+  }
+
+  if (key === "cost_per_lead" || key === "cost_per_booked_job" || key === "roas") {
+    const { data: perf } = await sb.from("ss_channel_performance").select("*").eq("tenant_id", t);
+    const paid = (perf ?? []).filter((r: any) => Number(r.spend ?? 0) > 0);
+    const spend = paid.reduce((a: number, r: any) => a + Number(r.spend), 0);
+    const leads = paid.reduce((a: number, r: any) => a + Number(r.leads ?? 0), 0);
+    const won = paid.reduce((a: number, r: any) => a + Number(r.won ?? 0), 0);
+    const booked = paid.reduce((a: number, r: any) => a + Number(r.booked_value ?? 0), 0);
+    const mk = (v: number | null, disp: string, n: number, d: number, nd?: string) => ({ ...meta, value: v, display: v === null ? "—" : disp, n, d, no_data: nd,
+      rows: paid.map((r: any) => ({ id: r.channel_key, kind: "channel", title: r.label ?? r.channel_key,
+        detail: `${r.leads} leads · ${r.won} won · $${Math.round(Number(r.spend)).toLocaleString()} spent` + (r.benchmark_cpl ? ` · market CPL $${r.benchmark_cpl}` : ""),
+        contributes: key === "cost_per_lead" ? (r.cost_per_lead === null ? "—" : "$" + r.cost_per_lead)
+                   : key === "cost_per_booked_job" ? (r.cost_per_booked_job === null ? "no win yet" : "$" + r.cost_per_booked_job)
+                   : (r.roas === null ? "—" : r.roas + "x"),
+        value: Number(key === "cost_per_lead" ? r.cost_per_lead : key === "cost_per_booked_job" ? r.cost_per_booked_job : r.roas) || 0 })) });
+    if (!paid.length) return mk(null, "—", 0, 0, "No paid channel has any spend recorded yet. Add spend under Marketing and these become real.");
+    if (key === "cost_per_lead") { const v = leads ? Math.round((spend / leads) * 100) / 100 : null; return mk(v, "$" + v, leads, leads, leads ? undefined : "Spend is recorded but no lead is attributed to a paid channel yet."); }
+    if (key === "cost_per_booked_job") { const v = won ? Math.round((spend / won) * 100) / 100 : null; return mk(v, "$" + v, won, leads, won ? undefined : "No paid-channel lead has been won yet, so there is no cost per job to report."); }
+    const v = spend ? Math.round((booked / spend) * 100) / 100 : null; return mk(v, v + "x", paid.length, paid.length);
+  }
+
+  if (key === "unattributed") {
+    const { data } = await sb.from("ss_leads").select("id,name,source,status,ad_channel,created_at").eq("tenant_id", t).order("created_at", { ascending: false });
+    const all = data ?? [];
+    const un = all.filter((l: any) => !l.ad_channel || l.ad_channel === "unattributed");
+    const v = pctOrNull(un.length, all.length);
+    return { ...meta, value: v, display: v === null ? "—" : v + "%", n: un.length, d: all.length,
+      no_data: all.length === 0 ? "No leads yet." : undefined,
+      rows: all.map((l: any) => ({ id: l.id, kind: "lead", title: l.name, detail: `${l.source} · ${l.status}`,
+        contributes: (!l.ad_channel || l.ad_channel === "unattributed") ? "NO SOURCE" : l.ad_channel, value: 0 })) };
   }
 
   if (key === "reviews") {
