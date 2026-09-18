@@ -1871,7 +1871,7 @@ Object.assign(A,{
     const host=el.closest('.drawer,.panel,#drawer,#main,body').querySelector('#aiHost')||$('#aiHost');if(host)host.innerHTML='<div class="empty">Asking…</div>';const res=await api('/ai/recommend',{task,ref:refo,input});aiPanel(host,res,task)},'AI'),
   'ai.decide':(id,el)=>run(async()=>{const [rid,decision]=id.split('|');await api(`/ai/recommendations/${rid}/decision`,{decision,by:'app'});const box=el.closest('.fact');if(box)box.querySelector('.row-actions').innerHTML=`<span class="pill ${decision==='accepted'?'ok':decision==='modified'?'warn':'mute'}">${decision}</span>`;toast('Recorded - this decision trains the next one')},'Decision'),
 });
-boot().then(()=>show(S.ui.sec||'overview'));
+boot().then(()=>{show(S.ui.sec||'overview');/* boot() does not go through refresh(), so the server-computed KPI strip has to be asked for here too - without this the overview silently shows the offline sample numbers while the badge says Live. */loadMetrics();});
 })();
 </script>
 <script>
