@@ -13,4 +13,26 @@ jobs:
         run: deno test --allow-env supabase/functions/ss-api/tests.ts
       - name: front-end script parses
         run: |
-          node -e "const h=require('fs').readFileSync('index.html','utf8');const m=h.match(/<script>\(function\(\)\{([\s\S]*?)\}\)\(\);\n<\/script>/);new Function(m[1]);console.log('ok')"
+          node -e "
+          const fs=require('fs');
+          const html=fs.readFileSync('index.html','utf8');
+          const js=[...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]).sort((a,b)=>b.length-a.length)[0];
+          fs.writeFileSync('/tmp/app.js', js);
+          "
+          node --check /tmp/app.js
+
+  smoke:
+    # Every unit test above passed while the app silently showed offline sample numbers under a "Live" badge,
+    # because nothing in the suite loaded the page. This job does: it opens the real deployment in a real browser
+    # and asserts what a person would actually see - that the mode badge and the numbers agree, that every
+    # section renders, and that a drill-down carries its formula, its source table and its records.
+    runs-on: ubuntu-latest
+    needs: deno
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install playwright@latest --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: browser smoke test against the deployment
+        run: node tests/smoke.mjs ${{ vars.SMOKE_URL || 'https://bridgebox-scagscapes.vercel.app/' }}
