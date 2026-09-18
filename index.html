@@ -365,6 +365,7 @@ tr.best td{background:var(--ok-soft)}
     <button data-act="nav" data-id="rain">Rain trigger</button>
     <button data-act="nav" data-id="billing">Billing &amp; reviews</button>
     <button data-act="nav" data-id="customers">Customers</button>
+    <button data-act="nav" data-id="map">Map</button>
     <button data-act="nav" data-id="marketing">Marketing &amp; leads</button>
     <button data-act="nav" data-id="properties">Properties</button>
     <button data-act="nav" data-id="sourcing">Sourcing</button>
@@ -407,6 +408,7 @@ tr.best td{background:var(--ok-soft)}
   <section class="section" id="s-rain"></section>
   <section class="section" id="s-billing"></section>
   <section class="section" id="s-customers"></section>
+  <section class="section" id="s-map"></section>
   <section class="section" id="s-marketing"></section>
   <section class="section" id="s-properties"></section>
   <section class="section" id="s-sourcing"></section>
@@ -1621,6 +1623,116 @@ function marginLive(){
   <div class="body"><p style="font-size:12px;color:var(--ink3);margin:0">${esc(m.note)}</p></div></div>`;
 }
 Object.assign(A,{ 'bill.open': id => billDrawer(id) });
+
+
+// ---------- Map ----------
+// Two kinds of dot, drawn differently on purpose. A record geocoded from a street address gets a pin: the job
+// really is there. A record that only carried a town gets a soft circle on the town centroid: that is where
+// demand is, not where the customer lives. Flattening the two into identical pins would be the map telling a
+// lie about how much it knows, which is the same failure as a hardcoded KPI.
+const MAP = { data: null, loading: false, lib: null, inst: null, layer: null, mode: 'all' };
+const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
+const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+function loadLeaflet(){
+  if (window.L) return Promise.resolve(window.L);
+  if (MAP.lib) return MAP.lib;
+  MAP.lib = new Promise((res, rej) => {
+    const css = document.createElement('link'); css.rel='stylesheet'; css.href=LEAFLET_CSS; document.head.appendChild(css);
+    const js = document.createElement('script'); js.src=LEAFLET_JS;
+    js.onload = () => res(window.L); js.onerror = () => rej(new Error('offline'));
+    document.head.appendChild(js);
+    setTimeout(()=>rej(new Error('timeout')), 6000);
+  }).catch(e => { MAP.lib = null; throw e; });
+  return MAP.lib;
+}
+async function loadMapData(){
+  if(!LIVE()) return;
+  MAP.loading = true; renderMap();
+  try{ MAP.data = await api('/map/data') }catch(e){ toast('Map: '+e.message) }
+  MAP.loading = false; renderMap(); drawMap();
+}
+const mapColor = p => p.kind==='property' ? '#7A5BA8' : p.status==='won' ? '#2E7D4F' : p.status==='lost' ? '#9AA5A1' : '#1F5A6E';
+function mapPoints(){
+  if(!MAP.data) return [];
+  const all = [...MAP.data.points, ...MAP.data.properties];
+  return MAP.mode==='all' ? all : MAP.mode==='address' ? all.filter(p=>p.precision==='address') : all.filter(p=>p.kind==='lead');
+}
+async function drawMap(){
+  const host = $('#mapCanvas'); if(!host || !MAP.data) return;
+  const pts = mapPoints(); if(!pts.length){ host.innerHTML='<div class="empty">Nothing has a position yet. Run the backfill above.</div>'; return }
+  let L; try{ L = await loadLeaflet() }catch(e){ drawMapFallback(host, pts); return }
+  if(!MAP.inst){
+    host.innerHTML='';
+    MAP.inst = L.map(host, { scrollWheelZoom:false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      { maxZoom:18, attribution:'&copy; OpenStreetMap contributors' }).addTo(MAP.inst);
+  }
+  if(MAP.layer) MAP.layer.remove();
+  MAP.layer = L.layerGroup().addTo(MAP.inst);
+  pts.forEach(p=>{
+    const c = mapColor(p);
+    const m = p.precision==='address'
+      ? L.circleMarker([p.lat,p.lng],{radius:7,color:'#fff',weight:2,fillColor:c,fillOpacity:.95})
+      : L.circle([p.lat,p.lng],{radius:2200,color:c,weight:1,fillColor:c,fillOpacity:.10,dashArray:'4 4'});
+    m.bindPopup(`<b>${esc(p.title||'')}</b><br>${esc(p.addr||p.area||'')}<br>
+      <span style="color:#666">${p.kind==='property'?'Property':esc(p.status||'')}${p.value?' · '+fmt(p.value):''}</span><br>
+      <span style="color:#999;font-size:11px">${p.precision==='address'?'Exact address':'Town centroid only — not the customer\'s location'}</span>`);
+    if(p.kind==='lead') m.on('click',()=>{ setTimeout(()=>leadDrawer(p.id),260) });
+    m.addTo(MAP.layer);
+  });
+  const b = MAP.data.bounds;
+  if(b) MAP.inst.fitBounds([[b.south,b.west],[b.north,b.east]], { padding:[28,28] });
+  setTimeout(()=>MAP.inst.invalidateSize(), 60);
+}
+// No tiles (offline, or the CDN blocked): plot the same points in plain SVG rather than showing a broken box.
+function drawMapFallback(host, pts){
+  const b = MAP.data.bounds; if(!b){ host.innerHTML='<div class="empty">No bounds.</div>'; return }
+  const W=760,H=420,pad=26;
+  const x = p => pad + ((p.lng-b.west)/((b.east-b.west)||1))*(W-2*pad);
+  const y = p => pad + ((b.north-p.lat)/((b.north-b.south)||1))*(H-2*pad);
+  host.innerHTML = `<div style="font-size:12px;color:var(--ink3);margin-bottom:6px">Street tiles unavailable — positions plotted without a basemap.</div>
+  <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--line);border-radius:8px">
+    ${pts.map(p=>p.precision==='address'
+      ? `<circle cx="${x(p).toFixed(1)}" cy="${y(p).toFixed(1)}" r="6" fill="${mapColor(p)}" stroke="#fff" stroke-width="2"><title>${esc(p.title||'')}</title></circle>`
+      : `<circle cx="${x(p).toFixed(1)}" cy="${y(p).toFixed(1)}" r="16" fill="${mapColor(p)}" fill-opacity=".14" stroke="${mapColor(p)}" stroke-dasharray="3 3"><title>${esc(p.title||'')} (town only)</title></circle>`).join('')}
+  </svg>`;
+}
+function renderMap(){
+  const d = MAP.data;
+  const pc = d ? d.precision_counts : { address:0, area:0 };
+  $('#s-map').innerHTML = `
+  <div class="panel"><header><h3>Where the work is</h3>
+    <div class="simbar">
+      <button class="btn sm ${MAP.mode==='all'?'primary':''}" data-act="map.mode" data-id="all">Everything</button>
+      <button class="btn sm ${MAP.mode==='address'?'primary':''}" data-act="map.mode" data-id="address">Exact addresses</button>
+      <button class="btn sm ${MAP.mode==='leads'?'primary':''}" data-act="map.mode" data-id="leads">Leads only</button>
+      ${d&&d.missing?`<button class="btn sm" data-act="map.backfill">Geocode ${d.missing} missing</button>`:''}
+    </div></header>
+    <div class="body">
+      <div id="mapCanvas" style="height:430px;border-radius:8px;overflow:hidden">${MAP.loading?'<div class="empty">Loading…</div>':''}</div>
+      <p style="font-size:12px;color:var(--ink3);margin:8px 0 0">
+        <b>${pc.address}</b> plotted from a street address (solid dot) · <b>${pc.area}</b> known only by town (dashed circle on the town centroid — that is where demand is, not where the customer lives)${d&&d.missing?` · <b>${d.missing}</b> with no position at all`:''}.
+        Positions from OpenStreetMap Nominatim.</p>
+    </div></div>
+
+  <div class="panel"><header><h3>Demand by town</h3><span class="hint">works whether or not a record has coordinates</span></header>
+  <div class="tbl-wrap"><table><thead><tr><th>Town</th><th>Leads</th><th>Won</th><th>Booked value</th><th>Win rate</th></tr></thead><tbody>
+  ${d?d.areas.map(a=>`<tr><td><b>${esc(a.area)}</b></td><td>${a.leads}</td><td>${a.won||'—'}</td><td class="mono">${a.value?fmt(a.value):'—'}</td><td>${a.win_pct===null?'—':a.win_pct+'%'}</td></tr>`).join(''):'<tr><td colspan="5" class="empty">Loading…</td></tr>'}
+  </tbody></table></div>
+  <div class="body"><p style="font-size:12px;color:var(--ink3);margin:0">Source of truth: <code>ss_leads</code> + <code>ss_jobs</code> + <code>ss_properties</code>. Win rate on a town with one or two leads is noise — read the lead count first.</p></div></div>`;
+}
+Object.assign(A,{
+  'map.mode': m => { MAP.mode = m; renderMap(); drawMap(); },
+  'map.backfill': () => run(async()=>{
+    toast('Geocoding — OpenStreetMap allows one lookup a second, so this takes a moment');
+    const r = await api('/geo/backfill', { limit: 12 });
+    MAP.inst = null;
+    await loadMapData();
+    toast(`${r.geocoded} positioned${r.failed.length?`, ${r.failed.length} could not be matched`:''}`);
+  }, 'Geocode'),
+});
+R.map = () => { renderMap(); loadMapData(); };
+TITLES.map = ['Map', () => 'Every lead, job and property that has a position'];
 
 outboxSync();
 
