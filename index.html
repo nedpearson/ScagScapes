@@ -841,7 +841,7 @@ function renderRain(){
 /* ---------- Billing ---------- */
 function renderBilling(){
   const inv=S.jobs.filter(j=>j.stage>0);const out=inv.filter(j=>j.stage<4).reduce((a,j)=>a+j.value*(1-dep()),0);
-  $('#s-billing').innerHTML=`<div class="grid g2">
+  $('#s-billing').innerHTML=`${billLive()}<div class="grid g2">
     <div class="grid" style="align-content:start">
       <div class="panel"><header><h3>Invoices</h3><span class="hint">Deposit ${S.settings.deposit}% on accept · balance on completion · outstanding ${fmt(out)}</span></header>
         <div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Total</th><th>Deposit</th><th>Balance</th><th>Status</th></tr></thead><tbody>${inv.length?inv.map(j=>{const d=j.value*dep();const st=j.stage===4?['Paid in full','ok']:['Deposit paid','warn'];return `<tr class="click" data-act="inv.open" data-id="${j.id}"><td><b>${esc(j.name)}</b><span class="sub">${esc(j.scope)}</span></td><td class="mono">${fmt(j.value)}</td><td class="mono">${fmt(d)}</td><td class="mono">${j.stage===4?'$0':fmt(j.value-d)}</td><td><span class="pill ${st[1]}">${st[0]}</span></td></tr>`}).join(''):'<tr><td colspan="5" class="empty">No accepted jobs yet.</td></tr>'}</tbody></table></div></div>
@@ -879,7 +879,7 @@ function renderReports(){
   const resp=L.filter(l=>l.resp>0).map(l=>l.resp);const buckets=[['<30s',resp.filter(r=>r<30).length],['30–60s',resp.filter(r=>r>=30&&r<=60).length],['1–5 min',resp.filter(r=>r>60&&r<=300).length],['>5 min',resp.filter(r=>r>300).length]];
   const mj=S.jobs.map(j=>({j,m:margin(j)})).sort((a,b)=>a.m/a.j.value-b.m/b.j.value);
   const wk=S.weekly;
-  $('#s-reports').innerHTML=`<div class="grid g2">
+  $('#s-reports').innerHTML=`${funnelLive()}${marginLive()}<div class="grid g2">
     <div class="grid" style="align-content:start">
       <div class="panel"><header><h3>Funnel · all time</h3><span class="hint">conversion step to step</span></header><div class="body">${funnelSVG([['Leads',tot],['Estimate booked',booked],['Quoted',quoted],['Won',won]])}</div></div>
       <div class="panel"><header><h3>Lead sources</h3><span class="hint">where the money comes from</span></header><div class="tbl-wrap"><table><thead><tr><th>Source</th><th>Leads</th><th>Won</th><th>Close</th><th>Revenue</th></tr></thead><tbody>${Object.entries(srcs).sort((a,b)=>b[1].val-a[1].val).map(([k,s])=>`<tr><td><b>${esc(k)}</b></td><td class="mono">${s.n}</td><td class="mono">${s.won}</td><td class="mono">${Math.round(s.won/s.n*100)}%</td><td class="mono">${fmt(s.val)}</td></tr>`).join('')}</tbody></table></div></div>
@@ -1363,6 +1363,8 @@ Object.assign(A,{
     closeAll();await loadProperties();toast('Saved — the next estimate at this address starts from it')},'Property'),
 });
 R.properties=()=>{renderProperties();loadProperties()};
+R.billing = () => { renderBilling(); loadBilling(); };
+R.reports = () => { renderReports(); loadReports(); };
 TITLES.properties=['Properties',()=>'Soil, lot, elevation and what the drainage actually did — per address'];
 
 
@@ -1537,6 +1539,88 @@ Object.assign(A,{
 });
 R.marketing = () => { renderMarketing(); loadMarketing(); };
 TITLES.marketing = ['Marketing & leads', () => 'Every lead, where it came from, what it cost and what it became'];
+
+
+// ---------- Billing and Reports, against the ledger rather than an assumption ----------
+// The invoices table used to show a Balance computed as value x deposit%, which is a statement about what a
+// customer SHOULD have paid, printed in the same typeface as fact. ss_payments was sitting right there. Balance
+// is now billed minus received, status comes from money that actually moved, and every row opens its payments.
+const BILL = { invoices: [], aging: [], outstanding: 0, funnel: null, margin: null, loading: false };
+async function loadBilling(){
+  if(!LIVE()) return;
+  BILL.loading = true;
+  try{ const [inv, ag] = await Promise.all([api('/billing/invoices'), api('/billing/aging')]);
+       BILL.invoices = inv.invoices||[]; BILL.outstanding = inv.outstanding||0; BILL.deposit_pct = inv.deposit_pct;
+       BILL.aging = ag.buckets||[]; }
+  catch(e){ toast('Billing: '+e.message) }
+  BILL.loading = false;
+  if(S.ui.sec==='billing') renderBilling();
+}
+async function loadReports(){
+  if(!LIVE()) return;
+  try{ const [f, m] = await Promise.all([api('/reports/funnel'), api('/reports/margin')]);
+       BILL.funnel = f; BILL.margin = m; }
+  catch(e){ toast('Reports: '+e.message) }
+  if(S.ui.sec==='reports') renderReports();
+}
+function billLive(){
+  if(!BILL.invoices.length) return '';
+  const st = r => r.status==='paid in full' ? 'ok' : r.status==='nothing received' ? 'crit' : 'warn';
+  return `<div class="panel"><header><h3>Invoices · from the payment ledger</h3><span class="hint">outstanding ${fmt(BILL.outstanding)} · billed minus received, not an assumption</span></header>
+  <div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Billed</th><th>Received</th><th>Owed</th><th>Status</th><th>Age</th></tr></thead><tbody>
+  ${BILL.invoices.map(r=>`<tr class="click" data-act="bill.open" data-id="${r.id}">
+    <td><b>${esc(r.name)}</b><div style="font-size:11.5px;color:var(--ink3)">${esc(r.scope||'')}</div></td>
+    <td class="mono">${fmt(r.value)}</td><td class="mono">${fmt(r.paid)}</td>
+    <td class="mono"><b>${r.balance>0.5?fmt(r.balance):'—'}</b></td>
+    <td><span class="pill ${st(r)}">${esc(r.status)}</span></td>
+    <td>${r.days_outstanding!==null?r.days_outstanding+'d':'—'}</td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="panel"><header><h3>How old the money is</h3></header><div class="tbl-wrap"><table><thead><tr><th>Age</th><th>Jobs</th><th>Amount</th></tr></thead><tbody>
+  ${BILL.aging.map(b=>`<tr><td>${esc(b.label)}</td><td>${b.n||'—'}</td><td class="mono">${b.amount?fmt(b.amount):'—'}</td></tr>`).join('')}
+  </tbody></table></div></div>`;
+}
+function billDrawer(id){
+  const r = BILL.invoices.find(x=>x.id===id); if(!r) return;
+  openDrawer(`<div class="dhead"><div><h3>${esc(r.name)}</h3><span class="sub">${esc(r.scope||'')}</span></div><button class="x" data-act="close" aria-label="Close">✕</button></div>
+  <div class="dbody prov">
+    <div class="fact"><b>The arithmetic</b>
+      <div class="srcrow"><span>Billed (job value)</span><span class="mono">${fmt(r.value)}</span></div>
+      <div class="srcrow"><span>Received (sum of payments)</span><span class="mono">${fmt(r.paid)}</span></div>
+      <div class="srcrow"><span><b>Owed</b></span><span class="mono"><b>${fmt(r.balance)}</b></span></div>
+      <div class="srcrow"><span>Deposit that was due at ${BILL.deposit_pct}%</span><span class="mono">${fmt(r.deposit_due)}</span></div>
+      ${r.days_to_first_payment!==null?`<div class="srcrow"><span>Days to first payment</span><span class="mono">${r.days_to_first_payment}</span></div>`:''}
+      ${r.days_outstanding!==null?`<div class="srcrow"><span>Days outstanding</span><span class="mono">${r.days_outstanding}</span></div>`:''}
+      <p style="margin:8px 0 0;font-size:11.5px;color:var(--ink3)">Source of truth: <code>ss_jobs.value</code> minus <code>sum(ss_payments.amount)</code> for this job.</p></div>
+    <h4 style="margin:14px 0 2px">Every payment received (${r.payments.length})</h4>
+    ${r.payments.length?r.payments.map(p=>`<div class="srcrow"><div><b>${esc(p.kind)}</b><div style="font-size:11.5px;color:var(--ink3)">${esc(p.method||'')} · ${new Date(p.at).toLocaleDateString()}</div></div><div class="mono" style="align-self:center">${fmt(p.amount)}</div></div>`).join('')
+      :'<div class="empty">Nothing received against this job yet.</div>'}
+    <div class="row-actions" style="margin-top:12px"><button class="btn sm" data-act="job.open" data-id="${r.id}">Open the job</button></div>
+  </div>`);
+}
+function funnelLive(){
+  const f = BILL.funnel; if(!f) return '';
+  const top = f.steps[0].n || 1;
+  return `<div class="panel"><header><h3>Funnel · from the lead records</h3><span class="hint">${f.integrity==='consistent'?'consistent':'inconsistent — see below'}</span></header><div class="body">
+  ${f.steps.map(s=>`<div style="margin-bottom:9px">
+    <div style="display:flex;justify-content:space-between;font-size:12.5px"><span><b>${esc(s.label)}</b> <span style="color:var(--ink3)">${esc(s.why)}</span></span><span class="mono">${s.n}${s.pct_of_prev!==null?` · ${s.pct_of_prev}%`:''}</span></div>
+    <div style="height:9px;background:var(--line);border-radius:5px;overflow:hidden;margin-top:3px"><div style="height:100%;width:${Math.max(2,Math.round(100*s.n/top))}%;background:var(--water)"></div></div></div>`).join('')}
+  ${f.biggest_drop?`<div class="fact" style="border-left:3px solid var(--paint);padding-left:10px;margin-top:10px"><b>Biggest single drop: ${esc(f.biggest_drop.from)} → ${esc(f.biggest_drop.to)}</b><p style="margin:4px 0 0">${f.biggest_drop.lost} leads lost here, ${f.biggest_drop.pct}% carried through. Fix this step before any other.</p></div>`:''}
+  ${(f.anomalies||[]).map(a=>`<div class="fact" style="border-left:3px solid var(--crit);padding-left:10px;margin-top:10px"><b>Inconsistent data at "${esc(a.step)}"</b><p style="margin:4px 0 0">${esc(a.meaning)}</p></div>`).join('')}
+  </div></div>`;
+}
+function marginLive(){
+  const m = BILL.margin; if(!m) return '';
+  return `<div class="panel"><header><h3>Margin by job</h3><span class="hint">${m.with_actuals} of ${m.jobs.length} from recorded actuals · labor at $${m.labor_rate}/h</span></header>
+  <div class="tbl-wrap"><table><thead><tr><th>Job</th><th>Price</th><th>Materials</th><th>Hours</th><th>Gross profit</th><th>Margin</th><th>Basis</th></tr></thead><tbody>
+  ${m.jobs.map(j=>`<tr class="click" data-act="job.open" data-id="${j.id}">
+    <td><b>${esc(j.name)}</b>${j.warn?` <span class="pill warn">${esc(j.warn)}</span>`:''}</td>
+    <td class="mono">${fmt(j.value)}</td><td class="mono">${fmt(j.material_cost)}</td><td>${j.labor_hours||'—'}</td>
+    <td class="mono">${fmt(j.gross_profit)}</td><td class="mono">${j.margin_pct===null?'—':j.margin_pct+'%'}</td>
+    <td><span class="pill ${j.basis==='actuals'?'ok':'mute'}">${j.basis}</span></td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="body"><p style="font-size:12px;color:var(--ink3);margin:0">${esc(m.note)}</p></div></div>`;
+}
+Object.assign(A,{ 'bill.open': id => billDrawer(id) });
 
 outboxSync();
 

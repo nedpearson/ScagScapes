@@ -14,6 +14,8 @@
 //   Marketing (marketing.ts): GET /marketing/channels - measured performance per channel vs published benchmark
 //                              GET/POST /marketing/spend - what was spent, by channel and period
 //                              POST /webhooks/lead - attributed inbound lead (utm / gclid / LSA)
+//   Reports (reports.ts): GET /reports/funnel · /reports/sources · /reports/margin
+//                          GET /billing/invoices - billed vs actually received · /billing/aging
 //   Voice (voice.ts):     POST /webhooks/voice/:provider - an answered call becomes an attributed lead + text-back
 //                          GET /voice/performance - calls answered, leads captured, cost per captured lead
 //   Provenance (explain.ts): GET /explain - every headline metric with definition, formula and source tables
@@ -32,6 +34,7 @@ import { ai, recommend } from "./ai.ts";
 import { explain } from "./explain.ts";
 import { marketing } from "./marketing.ts";
 import { voice } from "./voice.ts";
+import { reports } from "./reports.ts";
 import { PRICE_RE } from "./evals.ts";
 
 // ---------- stage machine ----------
@@ -188,6 +191,7 @@ Deno.serve(async (req) => {
     const xres = await explain(path, req, url, t); if (xres) return xres;
     const mres = await marketing(path, req, url, body, t); if (mres) return mres;
     const vres = await voice(path, req, url, body, t, settings); if (vres) return vres;
+    const rpres = await reports(path, req, url, body, t, settings); if (rpres) return rpres;
     const ares = await ai(path, req, url, body, t); if (ares) return ares;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
