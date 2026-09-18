@@ -7,13 +7,29 @@
 //
 //   node tests/smoke.mjs [url]        default: the production deployment
 import { chromium } from 'playwright';
+import { readdirSync, existsSync } from 'node:fs';
 
 const URL = process.argv[2] || 'https://bridgebox-scagscapes.vercel.app/';
 const fails = [];
 const ok = [];
 const check = (name, cond, detail = '') => (cond ? ok : fails).push(`${name}${detail ? ' — ' + detail : ''}`);
 
-const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+// Find a browser rather than assuming one. A sandbox may ship a pinned Chromium under PLAYWRIGHT_BROWSERS_PATH
+// whose revision does not match the installed Playwright; a CI runner has none and expects Playwright's own
+// download. Hardcoding one path passed locally and failed in CI on the very first run - which is the sort of
+// thing this file exists to catch, so it should not be the thing this file gets wrong.
+function findChrome() {
+  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (!root || !existsSync(root)) return undefined;             // let Playwright use the browser it installed
+  const cands = [];
+  for (const d of readdirSync(root)) {
+    cands.push(`${root}/${d}/chrome-headless-shell-linux64/chrome-headless-shell`);
+    cands.push(`${root}/${d}/chrome-linux/chrome`);
+  }
+  return cands.find(existsSync);
+}
+const browser = await chromium.launch({ executablePath: findChrome(), args: ['--no-sandbox'] });
 const page = await browser.newPage();
 const consoleErrors = [];
 page.on('pageerror', e => consoleErrors.push(String(e.message)));
@@ -48,9 +64,11 @@ if (isLive) {
 }
 
 // ---- 3. every section renders something ----
-const secs = await page.$$eval('[data-act="nav"]', bs => bs.map(b => b.dataset.id));
+// The same nav id appears twice - sidebar and mobile tab bar - and the tab-bar copy sits outside the viewport,
+// so drive the first match directly instead of trying to physically click it.
+const secs = [...new Set(await page.$$eval('[data-act="nav"]', bs => bs.map(b => b.dataset.id)))];
 for (const id of secs) {
-  await page.click(`[data-act="nav"][data-id="${id}"]`);
+  await page.evaluate(i => document.querySelector(`[data-act="nav"][data-id="${i}"]`).click(), id);
   await page.waitForTimeout(id === 'map' ? 1800 : 700);
   const info = await page.evaluate(sec => {
     const el = document.querySelector('#s-' + sec);
@@ -61,11 +79,11 @@ for (const id of secs) {
 }
 
 // ---- 4. a drill-down actually opens and carries its evidence ----
-await page.click('[data-act="nav"][data-id="overview"]');
+await page.evaluate(() => document.querySelector('[data-act="nav"][data-id="overview"]').click());
 await page.waitForTimeout(600);
 const drill = await page.$('[data-act="kpi.open"]');
 if (drill) {
-  await drill.click();
+  await page.evaluate(() => document.querySelector('[data-act="kpi.open"]').click());
   await page.waitForTimeout(1800);
   const d = await page.evaluate(() => {
     const el = document.querySelector('#drawer');
