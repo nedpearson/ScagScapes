@@ -1,7 +1,7 @@
 // Versioned evaluation suite on REAL Scag Scapes tasks (PRODUCT MANDATE §3, §12).
 // A model is promoted to production only when its measured score here justifies it - never on a vendor's word.
 // Bump SUITE_VERSION whenever a fixture or scorer changes so historical rows in ss_ai_evals stay comparable.
-export const SUITE_VERSION = "2026.09.4";
+export const SUITE_VERSION = "2026.09.5";
 import { smsIntent } from "./core.ts";
 
 export interface Fixture { id: string; task: string; input: any; context: any; images?: string[]; expect: { must_mention?: string[]; must_not_mention?: string[]; must_not_state_price?: boolean; confidence_max?: number; must_say_not_in_records?: boolean }; }
@@ -38,7 +38,24 @@ export const FIXTURES: Fixture[] = [
 ];
 
 export const PRICE_RE = /\$\s?\d[\d,]*(\.\d+)?|\b\d[\d,]*\s?(dollars|usd)\b|\btotal\s*(is|of|:)\s*\d/i;
+const PRICE_RE_G = new RegExp(PRICE_RE.source, "gi");
 const txt = (o: any) => JSON.stringify(o).toLowerCase();
+
+// A figure the model read out of the context it was given is not an invented price. The first version of this
+// check tested recommendation + reasoning against PRICE_RE flat, and cost claude-sonnet-4-5 the full 2 points on
+// BOTH triage-01 and risk-01 - the whole of their 0.60 and 0.50 - for writing "$420/5hrs downtime" and "Job value
+// $6,400" in their reasoning, quoting breakdown_history.actual_cost and job.value verbatim. That is not the
+// failure the mandate guards against; the rule is that the pricing engine owns prices, not that a model may never
+// repeat a number Scag already knows. So: the recommendation stays strictly price-free, because that is what can
+// reach a customer, while reasoning is only penalised for figures that are NOT in the context. Inventing a number
+// is still caught anywhere it appears. This is a correction to the scorer, not a loosening to flatter a model.
+function digits(s: string): string[] { return (s.match(PRICE_RE_G) ?? []).map((m) => m.replace(/[^\d]/g, "")).filter(Boolean); }
+export function priceClean(f: Fixture, out: any): boolean {
+  const rec = String(out?.recommendation ?? "");
+  if (PRICE_RE.test(rec)) return false;                 // never in the part a human might send
+  const ctx = JSON.stringify(f.context ?? {}).replace(/[^\d]/g, " ").split(/\s+/);
+  return digits(String(out?.reasoning ?? "")).every((d) => ctx.includes(d));   // grounded figures only
+}
 
 // Deterministic scorer: 0..1. Penalises invention hardest, because that is the failure that costs money.
 export function score(f: Fixture, out: any): number {
@@ -46,7 +63,7 @@ export function score(f: Fixture, out: any): number {
   const e = f.expect;
   if (e.must_mention) for (const w of e.must_mention) { max++; if (s.includes(w.toLowerCase())) pts++; }
   if (e.must_not_mention) for (const w of e.must_not_mention) { max++; if (!s.includes(w.toLowerCase())) pts++; }
-  if (e.must_not_state_price) { max += 2; if (!PRICE_RE.test(String(out?.recommendation ?? "") + " " + String(out?.reasoning ?? ""))) pts += 2; }
+  if (e.must_not_state_price) { max += 2; if (priceClean(f, out)) pts += 2; }
   if (e.must_say_not_in_records) { max += 2; if (/not in records|no record|not on file|cannot find/.test(s)) pts += 2; }
   if (e.confidence_max !== undefined) { max++; if (Number(out?.confidence ?? 1) <= e.confidence_max) pts++; }
   max++; if (Array.isArray(out?.evidence) && out.evidence.length) pts++;   // cited its evidence

@@ -61,7 +61,7 @@ Deno.test("performance: small samples are flagged insufficient; fill rate and qu
 // These must be dynamic: core.ts builds its Supabase client at module scope, and a static import would be
 // hoisted above the Deno.env.set() at the top of this file, so the client would be constructed with no URL.
 const { pick, strip, parseJson } = await import("./ai.ts");
-const { FIXTURES, score, baseline } = await import("./evals.ts");
+const { FIXTURES, score, baseline, priceClean } = await import("./evals.ts");
 const { smsIntent } = await import("./core.ts");
 Deno.test("router ignores providers without a configured key and returns null when nothing is usable", () => {
   const rows: any = [{ provider: "openai", model_id: "x", enabled: true, task_weights: { general: 0.9 }, cost_out_per_m: 1 }];
@@ -116,4 +116,17 @@ Deno.test("baseline: scored by the same scorer, and honest about where the regex
   const s = score(f, b);
   if (!(s >= 0 && s < 0.8)) throw new Error(`baseline score out of expected range: ${s}`);
   if (baseline(FIXTURES.find((x) => x.id === "triage-01")!) !== null) throw new Error("no baseline should be invented for tasks without a deterministic equivalent");
+});
+
+Deno.test("price check: a figure quoted from the context is not an invented price; the recommendation stays clean", () => {
+  const f = FIXTURES.find((x: any) => x.id === "triage-01")!;
+  // 420 is breakdown_history[0].actual_cost in this fixture's own context - quoting it back is grounded.
+  if (!priceClean(f, { recommendation: "Check the hydraulic hoses first", reasoning: "History shows a burst hose at $420 and 5 hours down." }))
+    throw new Error("a grounded figure in reasoning must not be penalised");
+  // a number that appears nowhere in the context is an invention, wherever it appears
+  if (priceClean(f, { recommendation: "Check the hoses", reasoning: "Budget about $3,875 for this repair." }))
+    throw new Error("an ungrounded figure in reasoning must be penalised");
+  // and the recommendation is strict regardless of grounding, because that is what a human might send on
+  if (priceClean(f, { recommendation: "Repair runs $420.", reasoning: "" }))
+    throw new Error("the recommendation must stay price-free even for a grounded figure");
 });

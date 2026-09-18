@@ -135,3 +135,26 @@ After the fix, the same three inbound texts produce drafts that are genuinely be
 - Re-run `POST /ai/evals/run` under suite 2026.09.4 for clean numbers under the corrected prompt and skip logic.
 - `triage-photo-01` stays skipped until a real breakdown photo is uploaded to `breakdown-media/evals/hydraulic-hose-burst.jpg`.
 - `triage-01` (0.60) and `risk-01` (0.50) are honest mediocre scores. Worth reading the outputs before deciding whether the model or the scorer is wrong — and not tuning the scorer to flatter the model.
+
+---
+
+## Reading the low scores — September 18, 2026 (suite 2026.09.5)
+
+The previous entry left two honest-looking mediocre scores with the instruction to *read the outputs before deciding whether the model or the scorer is wrong, and not to tune the scorer to flatter the model*. Doing that turned up two defects, neither of them the model's.
+
+### 1. The scorer was penalising grounded figures
+`triage-01` (0.60) and `risk-01` (0.50) each lost **exactly** the two `must_not_state_price` points and nothing else — every other check passed. Reading the stored outputs shows why:
+
+- triage-01 reasoning: *"Previous breakdown history shows hydraulic hose burst at **$420**/5hrs downtime"* — `breakdown_history[0].actual_cost` is 420, in that fixture's own context.
+- risk-01 reasoning: *"**Job value $6,400** represents moderate revenue exposure"* — `job.value` is 6400, likewise.
+
+Both were quoting Scag's own records back. The mandate's rule is that `price()` owns prices and a model must never hand a customer a total — not that a model may never repeat a number Scag already knows. The check tested `recommendation + reasoning` against one regex and could not tell the difference.
+
+Corrected: the **recommendation** stays strictly price-free, because that is the part a human might send on; **reasoning** is penalised only for figures absent from the context. Invention is still caught anywhere it appears, and a new test locks all three cases down — grounded-in-reasoning passes, ungrounded-in-reasoning fails, grounded-in-recommendation fails.
+
+Re-scored against the models' **original unchanged outputs**: triage-01 **0.60 → 1.00**, risk-01 **0.50 → 1.00**. Nothing about the model changed; the measurement was wrong. This is a correction, not a loosening — and it is worth noting that it makes the suite look flattering, which is exactly why the reasoning is written down here rather than left in a commit message.
+
+### 2. `/reset` silently reverted shadow mode
+Turning on `settings.ai_sms = "shadow"` and then resetting the demo tenant to clear probe texts wiped the setting, because the reseed rewrites `ss_tenants.settings` wholesale. An operational switch undone by a content reset, with nothing to say it had happened — and `/reset` is unauthenticated on the demo tenant, so any visitor could do it. `ss_reset_demo()` now carries `ai_sms` and `ai_sms_min_confidence` across the reseed (`supabase/migrations/scagscapes_reset_preserves_ai_settings.sql`). Verified: fired `/reset`, `ai_sms` still `shadow`, `deposit_pct` back to the seeded 30.
+
+**Standing lesson, added to the §3 rule:** when a fixture score is low, the first question is whether the scorer measured the right thing. When it is high, the first question is whether the output would survive contact with a customer. Both failures showed up in this suite within a day of each other.
