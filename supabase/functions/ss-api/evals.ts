@@ -1,7 +1,7 @@
 // Versioned evaluation suite on REAL Scag Scapes tasks (PRODUCT MANDATE §3, §12).
 // A model is promoted to production only when its measured score here justifies it - never on a vendor's word.
 // Bump SUITE_VERSION whenever a fixture or scorer changes so historical rows in ss_ai_evals stay comparable.
-export const SUITE_VERSION = "2026.09.3";
+export const SUITE_VERSION = "2026.09.4";
 import { smsIntent } from "./core.ts";
 
 export interface Fixture { id: string; task: string; input: any; context: any; images?: string[]; expect: { must_mention?: string[]; must_not_mention?: string[]; must_not_state_price?: boolean; confidence_max?: number; must_say_not_in_records?: boolean }; }
@@ -23,8 +23,13 @@ export const FIXTURES: Fixture[] = [
   { id: "reply-01", task: "customer_reply", input: { text: "Can y'all come Saturday? And does the price include hauling the dirt off?" },
     context: { lead: { name: "K. Landry", service_type: "drain" }, messages: [{ who: "sys", body: "Next open site visits: Thu 9/24 9:00 or Fri 9/25 1:00" }] },
     expect: { must_not_state_price: true, must_mention: ["haul"] } },
-  // Vision fixture: a public, stable reference image of a burst hydraulic hose. A model must name the hose - not the engine - and must not price the repair.
-  { id: "triage-photo-01", task: "breakdown_triage", input: { symptom: "Fluid on the ground under the machine, see photo" }, images: ["https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Hydraulic_hose_burst.jpg/640px-Hydraulic_hose_burst.jpg"],
+  // Vision fixture. It points at Scag's OWN storage, not a public URL: the first version of this fixture used a
+  // Wikimedia link that did not resolve, and the model was scored 0 for a broken link rather than for anything it
+  // said - a test that slanders the thing it measures is worse than no test. A "storage:" image is resolved to a
+  // short-lived signed URL at run time, exactly as production does for breakdown photos. Until someone uploads a
+  // photo to that path the fixture is SKIPPED with a reason, never scored.
+  { id: "triage-photo-01", task: "breakdown_triage", input: { symptom: "Fluid on the ground under the machine, see photo" },
+    images: ["storage:breakdown-media/evals/hydraulic-hose-burst.jpg"],
     context: { asset: { category: "Mini excavator", make: "Bobcat", model: "E35" } },
     expect: { must_mention: ["hose"], must_not_mention: ["engine rebuild", "transmission"], must_not_state_price: true } },
   { id: "risk-01", task: "job_risk", input: {},

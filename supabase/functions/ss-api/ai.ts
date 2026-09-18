@@ -73,7 +73,15 @@ export function strip(obj: any): any {
 }
 export function parseJson(text: string): any { const m = text.match(/\{[\s\S]*\}/); if (!m) return { note: text.trim() }; try { return JSON.parse(m[0]); } catch { return { note: text.trim() }; } }
 
-const SYSTEM = (task: Task) => `You are the operations assistant inside Scag Scapes Command, a Baton Rouge drainage contractor's own system. Task: ${task}.
+// Per-task shape of "recommendation". Discovered the hard way in shadow mode: asked only for a "recommendation",
+// the model returned "Confirm spoil hauling is included; offer both Friday slots" - advice for Charlie, which
+// would have been texted verbatim to a homeowner had ai_sms been "live". For customer_reply the recommendation
+// IS the outgoing message, and saying so is the difference between a draft and an embarrassment.
+const TASK_NOTE: Partial<Record<Task, string>> = {
+  customer_reply: ` For this task "recommendation" MUST be the exact words to send to the customer - a short, warm, plain-spoken text message from Scag Scapes, second person, no more than about 300 characters, no placeholders, no brackets, no instructions to staff, no meta-commentary. Write what the customer reads, not what we should do. Put your reasoning in "reasoning", never in "recommendation".`,
+};
+const SYSTEM = (task: Task) => TASK_NOTE[task] ? BASE_SYSTEM(task) + TASK_NOTE[task] : BASE_SYSTEM(task);
+const BASE_SYSTEM = (task: Task) => `You are the operations assistant inside Scag Scapes Command, a Baton Rouge drainage contractor's own system. Task: ${task}.
 Rules that are not negotiable: (1) use ONLY the context provided; if something is not in the context say "not in records" - never invent prices, availability, appointments, suppliers or addresses; (2) you recommend, the app decides - never state a final price or total, the pricing engine owns those; (3) return JSON with keys: recommendation (string), reasoning (string), confidence (0-1), assumptions (string[]), alternatives (string[]), evidence (string[] naming which context fields you relied on).`;
 
 // One recommendation: retrieve context, pick a model, call it, strip any number it invented, log the row.
@@ -115,22 +123,50 @@ export async function ai(path: string, req: Request, url: URL, body: any, t: str
   if (path === "/ai/recommendations" && req.method === "GET") { const { data } = await sb.from("ss_ai_recommendations").select("id,task,model_id,provider,confidence,decision,outcome,kpi,latency_ms,created_at").eq("tenant_id", t).order("created_at", { ascending: false }).limit(200); return json(data ?? []); }
   if (path === "/ai/learning" && req.method === "GET") { const { data } = await sb.from("ss_ai_learning").select("*").eq("tenant_id", t); return json(data ?? []); }
 
+  // A fixture image lives in Scag's own bucket; resolve it to a signed URL the way production does. Returns null
+  // when the object is not there, so the caller skips the fixture instead of scoring a model on a broken link.
+  // (declared here so the eval route below can use it)
+  // deno-lint-ignore no-inner-declarations
+  async function fixtureImages(imgs: string[] | undefined): Promise<{ urls: string[]; missing: string | null }> {
+    if (!imgs?.length) return { urls: [], missing: null };
+    const urls: string[] = [];
+    for (const ref of imgs) {
+      if (!ref.startsWith("storage:")) { urls.push(ref); continue; }
+      const [bucket, ...rest] = ref.slice("storage:".length).split("/");
+      const path = rest.join("/");
+      const { data } = await sb.storage.from(bucket).createSignedUrl(path, 600);
+      if (!data?.signedUrl) return { urls: [], missing: `${bucket}/${path}` };
+      urls.push(data.signedUrl);
+    }
+    return { urls, missing: null };
+  }
+
   // versioned evaluation suite on real Scag tasks - promote a model only when this says so (§3, §12)
   if (path === "/ai/evals/run" && req.method === "POST") {
     if (!guard(req)) return denied();
     const rows = (await models(t)).filter((m) => m.enabled && (configured() as any)[m.provider]); if (!rows.length) return json({ error: "no enabled model with a configured key" }, 400);
-    const results: any[] = [];
+    const results: any[] = []; const skipped: any[] = [];
     for (const m of rows) for (const f of FIXTURES) { let s = 0, ms = 0, e: string | null = null, text = "";
       if (f.images?.length && !(m.capabilities ?? []).includes("vision")) continue;   // a text-only model is not scored on a vision fixture
-      try { const c = await PROVIDERS[m.provider].complete(SYSTEM(f.task as Task), JSON.stringify({ input: f.input, context: f.context }), m.model_id, f.images ?? []); text = c.text; ms = c.latency_ms; s = score(f, strip(parseJson(c.text))); } catch (x) { e = (x as Error).message; }
+      const img = await fixtureImages(f.images);
+      if (img.missing) { skipped.push({ fixture_id: f.id, reason: `fixture image not found at ${img.missing} - upload one there to activate this test` }); continue; }
+      try { const c = await PROVIDERS[m.provider].complete(SYSTEM(f.task as Task), JSON.stringify({ input: f.input, context: f.context }), m.model_id, img.urls); text = c.text; ms = c.latency_ms; s = score(f, strip(parseJson(c.text))); } catch (x) { e = (x as Error).message; }
       const row = { tenant_id: t, suite_version: SUITE_VERSION, task: f.task, fixture_id: f.id, provider: m.provider, model_id: m.model_id, score: s, latency_ms: ms, error: e, output: text.slice(0, 4000) };
       await sb.from("ss_ai_evals").insert(row); results.push(row); }
     // the deterministic path, scored identically - this is the number a model has to beat (13)
     for (const f of FIXTURES) { const b = baseline(f); if (!b) continue;
       const row = { tenant_id: t, suite_version: SUITE_VERSION, task: f.task, fixture_id: f.id, provider: "baseline", model_id: "deterministic", score: score(f, b), latency_ms: 0, error: null, output: JSON.stringify(b).slice(0, 4000) };
       await sb.from("ss_ai_evals").insert(row); results.push(row); }
-    const by: Record<string, { n: number; score: number; ms: number }> = {}; for (const r of results) { const k = r.provider + ":" + r.model_id; by[k] = by[k] ?? { n: 0, score: 0, ms: 0 }; by[k].n++; by[k].score += r.score; by[k].ms += r.latency_ms; }
-    return json({ suite_version: SUITE_VERSION, fixtures: FIXTURES.length, summary: Object.fromEntries(Object.entries(by).map(([k, v]) => [k, { mean_score: +(v.score / v.n).toFixed(3), mean_latency_ms: Math.round(v.ms / v.n) }])), results });
+    // An errored call is a MISSING measurement, not a zero. Averaging it in would score a model for a network
+    // failure or a bad fixture, which is how an eval suite quietly starts lying. Errors are counted separately.
+    const by: Record<string, { n: number; score: number; ms: number; errors: number }> = {};
+    for (const r of results) { const k = r.provider + ":" + r.model_id; by[k] = by[k] ?? { n: 0, score: 0, ms: 0, errors: 0 };
+      if (r.error) { by[k].errors++; continue; } by[k].n++; by[k].score += r.score; by[k].ms += r.latency_ms; }
+    const summary = Object.fromEntries(Object.entries(by).map(([k, v]) => [k, { scored: v.n, errors: v.errors, mean_score: v.n ? +(v.score / v.n).toFixed(3) : null, mean_latency_ms: v.n ? Math.round(v.ms / v.n) : null }]));
+    const bl = summary["baseline:deterministic"]?.mean_score ?? null;
+    return json({ suite_version: SUITE_VERSION, fixtures: FIXTURES.length, baseline_mean: bl,
+      note: bl === null ? undefined : "A model may answer customers only where it beats the baseline on the same fixture - see reply-01 in results.",
+      summary, skipped, results });
   }
   if (path === "/ai/evals" && req.method === "GET") { const { data } = await sb.from("ss_ai_evals").select("suite_version,task,provider,model_id,score,latency_ms,error,ran_at").eq("tenant_id", t).order("ran_at", { ascending: false }).limit(500); return json(data ?? []); }
 

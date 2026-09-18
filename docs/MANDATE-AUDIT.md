@@ -99,3 +99,39 @@ The audit said the regex intent detector in `/webhooks/sms` "should *use* a rout
 Verified after deploy: `/health` 1.6.0; all three SMS branches (`book`, `haul`, fallback) return byte-identical replies to v1.5.1 with `ai_draft: null`; `/properties` returns 6; gated routes still 401; demo reset after probing.
 
 **Status change:** §13 Partial → **Implemented** (the check is now a number in a table, not a sentence in a doc). §11 Partial → **Implemented**. §12 stays Partial until a real model is scored — that needs a key.
+
+---
+
+## First real model scores, and two things they exposed — September 18, 2026 (suite 2026.09.4)
+
+`ANTHROPIC_API_KEY` and `SS_ADMIN_KEY` are set (by Ned, from `supabase/setup-secrets.ps1`). First scored run of `claude-sonnet-4-5` against suite 2026.09.3:
+
+| fixture | task | model | baseline |
+|---|---|---|---|
+| scope-01 | scope_from_lead | **1.00** | — |
+| scope-02-noinvent | scope_from_lead | **1.00** | — |
+| takeoff-01 | takeoff_review | **1.00** | — |
+| reply-01 | customer_reply | **1.00** | **0.75** |
+| triage-01 | breakdown_triage | 0.60 | — |
+| risk-01 | job_risk | 0.50 | — |
+| triage-photo-01 | breakdown_triage | *error* | — |
+
+The model clears the baseline on `reply-01`, which is the gate for routing SMS. `settings.ai_sms` is now **`shadow`** on the demo tenant — the ladder still answers every customer, the model drafts alongside, and every draft is logged for accept/reject. It is deliberately not `live`, on one fixture.
+
+### Two defects the run exposed, both now fixed
+
+**1. The suite was scoring a model for a broken link.** `triage-photo-01` pointed at a Wikimedia URL that returns 400 — the filename was invented when the fixture was written and never verified. The model scored 0 for a dead link rather than for anything it said, and that 0 was averaged into its mean. A test that defames the thing it measures is worse than no test. Fixed two ways: fixture images now use `storage:<bucket>/<path>` and are resolved to short-lived signed URLs from Scag's own bucket at run time (exactly what production does for breakdown photos), and a missing object **skips** the fixture with a stated reason instead of scoring it. Separately, `/ai/evals/run`'s summary now excludes errored rows from the mean and reports `scored` / `errors` / `skipped` separately — an errored call is a missing measurement, not a zero, and averaging it in is how an eval suite quietly starts lying.
+
+**2. A 1.00 on `reply-01` did not mean the reply was sendable.** In shadow mode the model's first real draft was *"Confirm spoil hauling is included per standard practice; offer both Friday slots"* — advice addressed to Charlie. The scorer checks keyword coverage and price abstinence, both of which that sentence passes, so a perfect score hid the fact that the output was not a text message. Had `ai_sms` been `live`, that would have gone to a homeowner. The `customer_reply` system prompt now states that `recommendation` **is** the outgoing message — second person, under ~300 characters, no placeholders, no staff instructions, reasoning goes in `reasoning`.
+
+After the fix, the same three inbound texts produce drafts that are genuinely better than the ladder rather than merely higher-scoring — notably answering both halves of *"does it include hauling AND can you do next week"*, which the single-branch ladder structurally cannot:
+
+> SENT (ladder): "It does — spoils hauled, trench line restored."
+> DRAFT (model, 0.95): "It does — spoils hauled, trench line restored. Next week works! We have Friday 9/18 at 7:30am or 4pm open. Which time is better for you?"
+
+**The lesson for §3, written down so it outlives this session:** a fixture score is evidence about the scorer as much as about the model. Before any `shadow → live` decision, read the actual drafts, not only the numbers.
+
+### Still open
+- Re-run `POST /ai/evals/run` under suite 2026.09.4 for clean numbers under the corrected prompt and skip logic.
+- `triage-photo-01` stays skipped until a real breakdown photo is uploaded to `breakdown-media/evals/hydraulic-hose-burst.jpg`.
+- `triage-01` (0.60) and `risk-01` (0.50) are honest mediocre scores. Worth reading the outputs before deciding whether the model or the scorer is wrong — and not tuning the scorer to flatter the model.
