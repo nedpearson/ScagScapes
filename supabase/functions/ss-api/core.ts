@@ -6,7 +6,7 @@ export const STATUS = { LIVE: "LIVE_VERIFIED", POSTED: "PROVIDER_POSTED", CALL: 
 export const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 export const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-ss-key, x-tenant",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-ss-key, x-ss-admin, x-tenant",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 export const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });

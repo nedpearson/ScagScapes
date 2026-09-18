@@ -106,8 +106,17 @@ export async function recommend(t: string, task: Task, ref: any, input: any) {
 // classes of route that are bulk or billable are gated regardless of tenant: /export moves every record in one
 // call, and /ai/evals/run + POST /ai/models spend provider credits and decide which model handles real work.
 // Set with: supabase secrets set SS_ADMIN_KEY=...   Unset => these routes are closed to everyone.
-const guard = (req: Request) => { const k = Deno.env.get("SS_ADMIN_KEY"); return !!k && req.headers.get("x-ss-key") === k; };
-const denied = () => json({ error: "key required", detail: "send header x-ss-key; this route is gated even on the demo tenant" }, 401);
+// The admin guard reads its OWN header. It used to read x-ss-key - the same header a real tenant must use to
+// authenticate as itself - which meant the two conditions could never both be true: to pass tenantFrom() Charlie
+// must send his api_key, to pass the guard he must send SS_ADMIN_KEY, and one header cannot be both. /export was
+// therefore permanently unreachable for every real tenant, breaking the portability promise (MANDATE 15) with a
+// fix that was meant to protect it. Found by actually exercising the multi-tenant path instead of assuming it.
+const guard = (req: Request) => { const k = Deno.env.get("SS_ADMIN_KEY"); return !!k && req.headers.get("x-ss-admin") === k; };
+// A tenant exporting its OWN data does not need the operator key - it needs to be that tenant, which tenantFrom()
+// has already established by the time we get here. Only the wide-open demo tenant still requires the admin key,
+// because "authenticated as demo" means nothing: anyone can be demo.
+const mayExport = (req: Request, t: string) => t !== "demo" || guard(req);
+const denied = () => json({ error: "operator key required", detail: "send header x-ss-admin with the value of SS_ADMIN_KEY. This is the operator key and is deliberately separate from a tenant's own x-ss-key, so authenticating as a tenant and acting as the operator stay different things." }, 401);
 
 export async function ai(path: string, req: Request, url: URL, body: any, t: string): Promise<Response | null> {
   if (path === "/ai/models" && req.method === "GET") return json({ configured: configured(), models: await models(t), suite_version: SUITE_VERSION });
@@ -195,7 +204,7 @@ export async function ai(path: string, req: Request, url: URL, body: any, t: str
   if (path === "/ai/search" && req.method === "GET") { const q = url.searchParams.get("q") ?? ""; if (!q) return json({ error: "q required" }, 400); return json({ q, hits: await retrieve(t, q, Number(url.searchParams.get("k") ?? 8)) }); }
   // portability: everything Scag owns, exportable in one call (§1, §15)
   if (path === "/export" && req.method === "GET") {
-    if (!guard(req)) return denied();
+    if (!mayExport(req, t)) return denied();
     const tables = ["ss_leads", "ss_messages", "ss_quotes", "ss_jobs", "ss_job_actuals", "ss_payments", "ss_bookings", "ss_campaigns", "ss_events", "ss_automations", "ss_vendors", "ss_rate_cards", "ss_reservations", "ss_equipment_assets", "ss_equipment_events", "ss_breakdowns", "ss_job_requirements", "ss_labor_rates", "ss_estimate_versions", "ss_provider_feedback", "ss_market_rates", "ss_ai_models", "ss_ai_recommendations", "ss_ai_evals", "ss_properties", "ss_embeddings"];
     const out: Record<string, any> = { exported_at: new Date().toISOString(), tenant: t, app_version: VERSION, suite_version: SUITE_VERSION, tables: {} };
     for (const tb of tables) { const { data, error } = await sb.from(tb).select("*").eq("tenant_id", t); out.tables[tb] = error ? { error: error.message } : data; }
