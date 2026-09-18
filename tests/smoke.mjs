@@ -29,6 +29,20 @@ function findChrome() {
   }
   return cands.find(existsSync);
 }
+// Poll until a container's rendered size stops changing, so the assertion is made on the settled DOM rather
+// than on whatever happened to exist when a timer expired. The quiet period has to outlast a request in flight:
+// at 400ms a section sat "stable" at 842 characters while its fetch was still travelling, and the test happily
+// recorded the empty shell. Deterministic where a sleep is a coin flip, but only if the sleep is long enough.
+async function settle(page, sel, { quietMs = 1500, maxMs = 12000 } = {}) {
+  const t0 = Date.now(); let last = -1, stable = 0;
+  while (Date.now() - t0 < maxMs) {
+    const len = await page.evaluate(s => document.querySelector(s)?.innerHTML.length ?? -1, sel);
+    if (len === last && len > 0) { stable += 120; if (stable >= quietMs) return len; } else { stable = 0; last = len; }
+    await page.waitForTimeout(120);
+  }
+  return last;
+}
+
 const browser = await chromium.launch({ executablePath: findChrome(), args: ['--no-sandbox'] });
 const page = await browser.newPage();
 const consoleErrors = [];
@@ -69,13 +83,24 @@ if (isLive) {
 const secs = [...new Set(await page.$$eval('[data-act="nav"]', bs => bs.map(b => b.dataset.id)))];
 for (const id of secs) {
   await page.evaluate(i => document.querySelector(`[data-act="nav"][data-id="${i}"]`).click(), id);
-  await page.waitForTimeout(id === 'map' ? 1800 : 700);
+  // Sections fetch their rows after the click and re-render. A fixed timer measured the pre-load snapshot and
+  // reported Vendors as an 842-character shell when it actually renders 19,126 characters and 35 providers - the
+  // test inventing a bug that was not there, and failing intermittently depending on the network. So wait for the
+  // section to stop changing instead of guessing how long it needs.
+  await settle(page, '#s-' + id);
+  // Assert the contract, not a byte count. An innerHTML length threshold is a proxy that depends on how fast a
+  // fetch came back, which made this check flaky and - worse - made it report Vendors as an empty shell when it
+  // renders 35 providers. What actually has to be true is: the section is showing, and it has rendered real
+  // furniture (a panel) rather than a blank div. Size is reported for information, never asserted on.
   const info = await page.evaluate(sec => {
     const el = document.querySelector('#s-' + sec);
-    return { on: !!el && el.classList.contains('on'), len: el ? el.innerHTML.length : 0,
-             title: document.querySelector('#secTitle')?.textContent };
+    if (!el) return { on: false, len: 0, panels: 0, rows: 0 };
+    return { on: el.classList.contains('on'), len: el.innerHTML.length,
+             panels: el.querySelectorAll('.panel, .kpi').length,
+             rows: el.querySelectorAll('tbody tr').length };
   }, id);
-  check(`section "${id}" renders`, info.on && info.len > 400, `on=${info.on} html=${info.len}`);
+  check(`section "${id}" renders`, info.on && info.panels > 0,
+        `panels=${info.panels} rows=${info.rows} html=${info.len}`);
 }
 
 // ---- 4. a drill-down actually opens and carries its evidence ----

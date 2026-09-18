@@ -14,6 +14,8 @@
 //   Marketing (marketing.ts): GET /marketing/channels - measured performance per channel vs published benchmark
 //                              GET/POST /marketing/spend - what was spent, by channel and period
 //                              POST /webhooks/lead - attributed inbound lead (utm / gclid / LSA)
+//   Ads (ads.ts):        GET /ads/platforms - what is wired, what secrets are missing, by name
+//                          POST /ads/sync - pull spend from Google Ads and Meta; inert until credentials exist
 //   Map (geo.ts):        POST /geo/backfill - geocode what has no position, 1 req/s, precision recorded
 //                          GET /map/data - every positioned record, demand by town, what is still missing
 //   Reports (reports.ts): GET /reports/funnel · /reports/sources · /reports/margin
@@ -38,6 +40,7 @@ import { marketing } from "./marketing.ts";
 import { voice } from "./voice.ts";
 import { reports } from "./reports.ts";
 import { geo } from "./geo.ts";
+import { ads } from "./ads.ts";
 import { PRICE_RE } from "./evals.ts";
 
 // ---------- stage machine ----------
@@ -196,6 +199,7 @@ Deno.serve(async (req) => {
     const vres = await voice(path, req, url, body, t, settings); if (vres) return vres;
     const rpres = await reports(path, req, url, body, t, settings); if (rpres) return rpres;
     const gres = await geo(path, req, url, body, t); if (gres) return gres;
+    const adres = await ads(path, req, url, body, t); if (adres) return adres;
     const ares = await ai(path, req, url, body, t); if (ares) return ares;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
