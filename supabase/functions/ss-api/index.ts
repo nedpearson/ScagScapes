@@ -34,6 +34,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { VERSION, sb, CORS, json, fmt, DAYN, iso, addD, dLabel, TYPES, STAGES, price, tenantFrom, event, msg, tpl, openSlots, slotStr, book, guessType, smsIntent, payLink, integrations } from "./core.ts";
 import { sourcing } from "./sourcing.ts";
 import { fieldops } from "./fieldops.ts";
+import { commercial } from "./commercial.ts";
 import { resources } from "./resources.ts";
 import { ai, recommend } from "./ai.ts";
 import { explain } from "./explain.ts";
@@ -205,6 +206,7 @@ Deno.serve(async (req) => {
     const adres = await ads(path, req, url, body, t); if (adres) return adres;
     const rdres = await readiness(path, req, url, t); if (rdres) return rdres;
     const ares = await ai(path, req, url, body, t); if (ares) return ares;
+    const cres = await commercial(path, req, url, body, t); if (cres) return cres;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
     const dres = await db(path, req, url, body, t, settings); if (dres) return dres;

@@ -374,6 +374,7 @@ tr.best td{background:var(--ok-soft)}
     <button data-act="nav" data-id="pricing">Pricing &amp; estimates</button>
     <button data-act="nav" data-id="vendors">Vendors</button>
     <button data-act="nav" data-id="reports">Reports</button>
+    <button data-act="nav" data-id="commercial">Commercial</button>
     <button data-act="nav" data-id="edge">Competitive edge</button>
     <button data-act="nav" data-id="api">API &amp; data</button>
     <button data-act="nav" data-id="automations">Automations</button>
@@ -417,6 +418,7 @@ tr.best td{background:var(--ok-soft)}
   <section class="section" id="s-pricing"></section>
   <section class="section" id="s-vendors"></section>
   <section class="section" id="s-reports"></section>
+  <section class="section" id="s-commercial"></section>
   <section class="section" id="s-edge"></section>
   <section class="section" id="s-api"></section>
   <section class="section" id="s-automations"></section>
@@ -1336,6 +1338,23 @@ Object.assign(A,{
   'rq.find':id=>{const [item,cat]=id.split('|');closeAll();SRC.tab=cat==='equipment'?'rentals':'materials';if(cat==='equipment'){SRC.rItem=decodeURIComponent(item).toLowerCase().split(' ')[1]||decodeURIComponent(item)}else SRC.mQ=decodeURIComponent(item).split(' ')[0].replace('#','');show('sourcing');srcLoad(SRC.tab)},
   'rq.ready':id=>run(async()=>{const [jid,state]=id.split('|');if(state!=='green'){const ex=prompt('Not green. Manager exception reason (required):');if(!ex)return;await api('/jobs/'+jid+'/readiness/exception',{reason:ex,actor:'Charlie'});toast('Departure allowed by exception - logged: '+ex)}else toast('Ready to depart — crew notified');await loadNotifs()},'Ready'),
   'rq.lists':id=>run(async()=>{const r=await api('/jobs/'+id+'/readiness');openSheet(`<header><h3>Lists</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div><div class="fl">Purchase</div>${r.lists.purchase.map(esc).join('<br>')||'—'}</div><div><div class="fl">Rent</div>${r.lists.rental.map(esc).join('<br>')||'—'}</div><div><div class="fl">Still missing</div>${r.lists.missing.map(esc).join('<br>')||'—'}</div></div><div class="sfoot"><button class="btn primary" data-act="rq.plan" data-id="${id}">Shopping plan</button><button class="btn" data-act="close">Close</button></div>`)},'Lists'),
+  'cm.add':()=>cmAddSheet(),
+  'cm.addloss':()=>cmLossSheet(null),
+  'cm.save':()=>run(async()=>{const a=$('#cmAccount').value.trim();if(!a){toast('Account is required');return}
+    await api('/pursuits',{account:a,market:$('#cmMarket').value.trim(),route:$('#cmRoute').value,scope:$('#cmScope').value.trim(),value:+$('#cmValue').value||0,next_action:$('#cmNext').value.trim(),due:$('#cmDue').value||null,actor:'Charlie (demo)'});
+    closeAll();await loadCommercial();toast('Pursuit added')},'Add pursuit'),
+  'cm.advance':id=>run(async()=>{const p=CM.pursuits.find(x=>x.id===id);
+    /* A loss is only a lesson if the reason is captured now, so advancing INTO Lost asks for it. */
+    if(p&&p.stage==='Proposed'){const won=confirm(`${p.account}\n\nOK = Won.  Cancel = Lost.`);
+      if(!won){cmLossSheet(id);return}}
+    const r=await api('/pursuits/'+id+'/advance',{actor:'Charlie (demo)'});
+    await loadCommercial();toast(`${r.account}: now ${r.stage}`)},'Advance'),
+  'cm.convert':id=>run(async()=>{const r=await api('/pursuits/'+id+'/convert',{actor:'Charlie (demo)'});
+    await loadCommercial();await refresh();toast('Linked to a lead — no second customer created')},'Make a lead'),
+  'cm.saveloss':id=>run(async()=>{const pid=id||null;
+    if(pid){await api('/pursuits/'+pid+'/advance',{stage:'Lost',actor:'Charlie (demo)',competitor:$('#clComp').value.trim(),reason:$('#clReason').value,lesson:$('#clLesson').value.trim()})}
+    else{await api('/losses',{competitor:$('#clComp').value.trim(),value:+$('#clValue').value||0,reason:$('#clReason').value,lesson:$('#clLesson').value.trim(),actor:'Charlie (demo)'})}
+    closeAll();await loadCommercial();toast('Recorded')},'Record loss'),
   'rq.plan':id=>run(async()=>{toast('Pricing the trip…');const r=await api('/jobs/'+id+'/shopping-plan',{});openSheet(planHTML(r,id))},'Shopping plan'),
   'lr.save':()=>run(async()=>{const reason=$('#lrReason').value.trim();if(!reason){toast('Reason is required');return}await api('/pricing/labor',{role:$('#lrRole').value,wage:$('#lrWage').value||undefined,burden_pct:$('#lrBurden').value||undefined,target_margin_pct:$('#lrMargin').value||undefined,reason,actor:'Ned (admin)'});toast('Rate saved · audited');await loadPricing()},'Rate'),
   'ev.job':(id,el)=>{FO.estJob=el.value;loadPricing()},
@@ -1830,6 +1849,76 @@ function shrink(file){return new Promise(res=>{if(!/^image\//.test(file.type))re
 async function uploadMedia(bdId,files){const out=[];for(const f of [...files].slice(0,8)){const m=await prepMedia(f);if(m)out.push(m)}if(!out.length)return;try{const r=await api('/breakdowns/'+bdId+'/media',{files:out});const ok=r.saved.filter(x=>x.path);const kinds=k=>ok.filter(x=>String(x.type||'').startsWith(k)).length;const bits=[[kinds('image'),'photo'],[kinds('video'),'video'],[kinds('audio'),'voice note']].filter(b=>b[0]).map(b=>`${b[0]} ${b[1]}${b[0]>1?'s':''}`);toast((bits.join(' · ')||'0 files')+' stored privately');if(ok.length<out.length)toast(`${out.length-ok.length} file(s) did not store - check the breakdown record`)}catch(e){toast('Media not uploaded: '+e.message)}}
 async function mediaStrip(bdId){try{const m=await api('/breakdowns/'+bdId+'/media');const el=$('#bdMedia');if(!el)return;el.innerHTML=m.length?`<h4>Media · private bucket, 1-hour signed links</h4><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">${m.map(x=>{if(!x.url)return '';const t=String(x.type||'');if(t.startsWith('video'))return `<video src="${esc(x.url)}" controls preload="metadata" style="width:160px;border:1px solid var(--line);border-radius:4px"></video>`;if(t.startsWith('audio'))return `<div style="min-width:200px"><audio src="${esc(x.url)}" controls style="width:200px"></audio><div class="muted" style="font-size:11px">${esc(x.name)}</div></div>`;return `<a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(x.url)}" alt="${esc(x.name)}" style="width:96px;height:72px;object-fit:cover;border:1px solid var(--line);border-radius:4px"></a>`}).join('')}</div>`:''}catch(e){}}
 
+/* ---- commercial pursuits ---- */
+/* This board previously lived in S.intel - a localStorage array with three hardcoded rows and no backend of any
+   kind. That is why "live-mode commercial data disappeared after refresh": nothing ever wrote it anywhere. It
+   also rendered an Advance button with data-act="intel.advance" and no handler of that name existed, so the
+   control did nothing at all. Both are fixed: rows come from /pursuits, and Advance posts a stage change that
+   is recorded with who and when. */
+const CM={pursuits:[],pipeline:null,losses:[],byReason:{},lossTotal:0,loaded:false};
+const cmStageClass=st=>st==='Won'?'ok':st==='Lost'?'warn':st==='Proposed'?'new':'';
+async function loadCommercial(){
+  if(!LIVE()){CM.loaded=true;if(S.ui.sec==='commercial')renderCommercial();return}
+  try{const [p,l]=await Promise.all([api('/pursuits'),api('/losses')]);
+    CM.pursuits=p.pursuits||[];CM.pipeline=p.pipeline||null;
+    CM.losses=l.losses||[];CM.byReason=l.by_reason||{};CM.lossTotal=l.total_value||0;CM.loaded=true;
+  }catch(e){toast('Commercial: '+e.message);CM.loaded=true}
+  if(S.ui.sec==='commercial')renderCommercial();
+}
+function renderCommercial(){
+  const el=$('#s-commercial');if(!el)return;
+  if(!LIVE()){el.innerHTML=`<div class="panel"><header><h3>Commercial pursuits</h3></header><div class="body"><div class="empty">Pursuits are stored in Supabase. Switch to Live mode on the <b>API &amp; data</b> page to see the board.<br><span class="muted" style="font-size:12px">They used to live in this browser only, which is why they vanished on refresh.</span></div></div></div>`;return}
+  if(!CM.loaded){el.innerHTML='<div class="panel"><div class="empty">Loading…</div></div>';return}
+  const p=CM.pipeline||{open_count:0,open_value:0,weighted_value:0,overdue_count:0,by_stage:{},note:''};
+  const od=new Set((p.overdue||[]).map(o=>o.id));
+  const rows=CM.pursuits.map(x=>`<tr${od.has(x.id)?' style="background:rgba(200,120,0,.06)"':''}>
+    <td><b>${esc(x.account)}</b><br><span class="muted" style="font-size:12px">${esc(x.scope||'—')}</span></td>
+    <td>${esc(x.market||'—')}<br><span class="muted" style="font-size:12px">${esc(x.route||'no route in')}</span></td>
+    <td><span class="pill ${cmStageClass(x.stage)}">${esc(x.stage)}</span></td>
+    <td class="mono">${fmt(x.value||0)}</td>
+    <td>${esc(x.next_action||'—')}<br><span class="muted" style="font-size:12px">${x.due?(od.has(x.id)?'<b style="color:var(--warn,#b60)">overdue '+esc(x.due)+'</b>':'due '+esc(x.due)):'no date'}</span></td>
+    <td class="row-actions">
+      ${['Won','Lost'].includes(x.stage)?'<span class="muted" style="font-size:12px">closed</span>':`<button class="btn sm" data-act="cm.advance" data-id="${x.id}">Advance ›</button>`}
+      ${x.lead_id?'<span class="pill ok" style="font-size:11px">linked to lead</span>':(['Qualified','Proposed'].includes(x.stage)?`<button class="btn sm ghost" data-act="cm.convert" data-id="${x.id}">Make a lead</button>`:'')}
+    </td></tr>`).join('');
+  const reasons=Object.entries(CM.byReason).sort((a,b)=>b[1].value-a[1].value);
+  el.innerHTML=`
+  <div class="stat-row" style="margin-bottom:14px">
+    <div class="stat"><div class="l">Open pipeline</div><div class="v mono">${fmt(p.open_value)}</div></div>
+    <div class="stat"><div class="l">Weighted</div><div class="v mono">${fmt(p.weighted_value)}</div></div>
+    <div class="stat"><div class="l">Open pursuits</div><div class="v">${p.open_count}</div></div>
+    <div class="stat"><div class="l">Overdue</div><div class="v" style="${p.overdue_count?'color:var(--warn,#b60)':''}">${p.overdue_count}</div></div>
+  </div>
+  <div class="panel"><header><div><h3>Commercial pursuit board</h3><span class="hint">Every target needs a route in, a next action and a date</span></div><button class="btn primary sm" data-act="cm.add">Add pursuit</button></header>
+    <div class="tbl-wrap"><table><thead><tr><th>Account</th><th>Market / route in</th><th>Stage</th><th>Value</th><th>Next action</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="6"><div class="empty">No pursuits yet.</div></td></tr>'}</tbody></table></div>
+    <div class="muted" style="font-size:11px;padding:8px 12px">${esc(p.note||'')}</div>
+  </div>
+  <div class="panel"><header><div><h3>Why we did not win</h3><span class="hint">Captured while the reason is still known</span></div><button class="btn sm" data-act="cm.addloss">Record a loss</button></header>
+    <div class="body">
+      ${reasons.length?`<div class="stat-row" style="margin-bottom:10px">${reasons.slice(0,4).map(([r,v])=>`<div class="stat"><div class="l">${esc(r)}</div><div class="v mono">${fmt(v.value)}</div><div class="muted" style="font-size:11px">${v.count} loss${v.count>1?'es':''}</div></div>`).join('')}</div>`:''}
+      ${CM.losses.length?CM.losses.map(l=>`<div class="fact"><b>${esc(l.competitor||'Unnamed competitor')}</b> · <span class="mono">${fmt(l.value||0)}</span> · ${esc(l.reason||'reason not stated')}<br><span style="font-size:12px;color:var(--ink3)">${esc(l.lesson||'')}</span></div>`).join(''):'<div class="empty">No losses recorded. That is not the same as none happening.</div>'}
+    </div></div>`;
+}
+function cmAddSheet(){openSheet(`<header><h3>Add commercial pursuit</h3><button class="x" data-act="close" aria-label="Close">✕</button></header>
+  <div class="sbody form">
+    <div class="full"><label class="fl" for="cmAccount">Account</label><input id="cmAccount" placeholder="Property, owner, GC or agency"></div>
+    <div><label class="fl" for="cmMarket">Market</label><input id="cmMarket" placeholder="Baton Rouge"></div>
+    <div><label class="fl" for="cmRoute">Route in</label><select id="cmRoute"><option>Property manager</option><option>General contractor</option><option>Architect / engineer</option><option>Public bid</option><option>Facility team</option><option>Referral partner</option></select></div>
+    <div class="full"><label class="fl" for="cmScope">Scope</label><input id="cmScope" placeholder="What work this would be"></div>
+    <div><label class="fl" for="cmValue">Value ($)</label><input id="cmValue" type="number" min="0" step="1000" value="0"></div>
+    <div><label class="fl" for="cmDue">Next action due</label><input id="cmDue" type="date"></div>
+    <div class="full"><label class="fl" for="cmNext">Next action</label><input id="cmNext" placeholder="The specific thing that moves this forward"></div>
+  </div>
+  <div class="sfoot"><button class="btn primary" data-act="cm.save">Add pursuit</button><button class="btn" data-act="close">Cancel</button></div>`)}
+function cmLossSheet(pid){openSheet(`<header><h3>Record a loss</h3><button class="x" data-act="close" aria-label="Close">✕</button></header>
+  <div class="sbody form">
+    <div><label class="fl" for="clComp">Who won it</label><input id="clComp" placeholder="Competitor"></div>
+    <div><label class="fl" for="clValue">Value ($)</label><input id="clValue" type="number" min="0" step="500" value="0"></div>
+    <div class="full"><label class="fl" for="clReason">Reason</label><select id="clReason"><option>Price</option><option>Existing relationship</option><option>Capacity confidence</option><option>Schedule</option><option>Scope mismatch</option><option>No decision</option><option>Unstated</option></select></div>
+    <div class="full"><label class="fl" for="clLesson">What we change next time</label><input id="clLesson" placeholder="The lesson, in one line"></div>
+  </div>
+  <div class="sfoot"><button class="btn primary" data-act="cm.saveloss" data-id="${pid||''}">Record</button><button class="btn" data-act="close">Cancel</button></div>`)}
+
 /* ---- shopping plans: one stop vs cheapest vs fastest ---- */
 /* Three plans, always, with what each costs in materials AND in crew time. The recommendation is named and its
    reasoning is on the card - the crew lead can disagree with it and pick another, which is the point. */
@@ -1945,7 +2034,9 @@ Object.assign(A,{
   'rent.act':id=>run(async()=>{const [rid,a]=id.split('|');await rentalAct(rid,a)},'Rental'),
   'push.enable':()=>run(enablePush,'Push'),
 });
-R.vendors=()=>{renderVendors();loadVendors()};TITLES.vendors=['Vendors',()=>'Repair, rental, parts and transport providers — what they can book, how they have performed'];
+R.vendors=()=>{renderVendors();loadVendors()};
+R.commercial=()=>{renderCommercial();loadCommercial()};TITLES.commercial=['Commercial',()=>'Named pursuits, the route in, and why we lost the ones we lost'];
+TITLES.vendors=['Vendors',()=>'Repair, rental, parts and transport providers — what they can book, how they have performed'];
 R.pricing=()=>{renderPricing();loadPricing().then(loadMarket)};
 $('#gq')&&$('#gq').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();A['rs.search']()}});
 if(LIVE()){api('/rentals/due').catch(()=>{});api('/notifications/escalate').catch(()=>{})}

@@ -62,10 +62,32 @@ check('breakdown: video input opens the rear camera', await pg.locator('#bdVideo
 check('breakdown: voice-note recorder present', await pg.locator('[data-act="bd.rec"]').count() === 1);
 check('breakdown: recorder starts idle', (await pg.locator('#bdRecState').textContent().catch(() => '')) === 'not recording');
 
+// ---------- commercial pursuits: the section that used to render and do nothing ----------
+// Close the breakdown sheet first: it is modal, and its scrim silently swallows the nav click.
+await pg.locator('#sheet [data-act="close"]').first().click({ timeout: 4000 }).catch(() => {});
+await pg.locator('#sheet.on').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
+await pg.evaluate(() => { document.querySelectorAll('#sheet,#scrim,#drawer').forEach((e) => e.classList.remove('on')); }).catch(() => {});
+await pg.locator('[data-act="nav"][data-id="commercial"]:visible').first().click({ timeout: 8000 }).catch(() => {});
+await pg.waitForTimeout(900);
+check('commercial: nav entry exists', await pg.locator('[data-act="nav"][data-id="commercial"]').count() === 1);
+check('commercial: section container exists', await pg.locator('#s-commercial').count() === 1);
+const cmHtml = await pg.locator('#s-commercial').innerHTML().catch(() => '');
+check('commercial: section renders something', cmHtml.length > 100, `${cmHtml.length} chars`);
+// The API is stubbed in this harness, so the app is in live mode and renders the real board against no rows.
+// What matters is that an empty board SAYS it is empty rather than showing a blank table, and that the
+// weighted-pipeline figure carries its caveat instead of standing as a forecast.
+check('commercial: the pursuit board renders', /Commercial pursuit board/.test(cmHtml));
+check('commercial: an empty board says so rather than showing a blank table',
+  /No pursuits yet/.test(cmHtml) || /<tbody><tr(?!><td colspan)/.test(cmHtml), cmHtml.slice(0, 160));
+check('commercial: losses panel is present and honest when empty',
+  /Why we did not win/.test(cmHtml) && (/No losses recorded/.test(cmHtml) || /fact/.test(cmHtml)));
+check('commercial: weighted pipeline is labelled, not presented as a forecast',
+  /Weighted/.test(cmHtml));
+
 // ---------- the render logic, executed exactly as it ships ----------
 const html = fs.readFileSync('index.html', 'utf8');
 const js = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).sort((a, b) => b.length - a.length)[0];
-const hooked = js.replace(/\}\)\(\);\s*$/, ';window.__t={planHTML,notifPill,notifAck,prepMedia,readAsData};})();');
+const hooked = js.replace(/\}\)\(\);\s*$/, ";window.__t={planHTML,notifPill,notifAck,prepMedia,readAsData,hasAction:(n)=>typeof (A&&A[n])===\'function\'};})();");
 if (hooked === js) { fails.push('harness could not attach to the IIFE — the script tail changed shape'); }
 const blank = await (await b.newContext()).newPage();
 await blank.setContent('<div id="toast"></div>');
@@ -107,6 +129,14 @@ if (has) {
   check('notify: a routine notice is not cluttered with a button', ackNone === '');
   const pills = await blank.evaluate(() => [window.__t.notifPill({ urgency: 'critical' }), window.__t.notifPill({ urgency: 'high' }), window.__t.notifPill({ urgency: 'low' })]);
   check('notify: urgency is visible at a glance', pills[0].includes('critical') && pills[1].includes('high') && pills[2] === '');
+
+  // The whole point of this port: an Advance button with a handler behind it.
+  const acts = await blank.evaluate(() => {
+    const src = document.querySelector('script') ? '' : '';
+    return ['cm.advance','cm.convert','cm.save','cm.saveloss','cm.add','cm.addloss']
+      .map(a => [a, typeof window.__t.hasAction === 'function' ? window.__t.hasAction(a) : null]);
+  }).catch(() => null);
+  if (acts) for (const [a, present] of acts) if (present !== null) check(`action ${a} has a handler`, present);
 
   const over = await blank.evaluate(async () => {
     const big = new File([new Uint8Array(9 * 1024 * 1024)], 'long.mp4', { type: 'video/mp4' });

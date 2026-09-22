@@ -246,3 +246,60 @@ Deno.test("scoreOptions: a vendor that has let Scag down ranks below an identica
   assertEquals(r[0].label, "never missed");
   assert(r[0].score.inputs.reliability === .93, "the figure must be visible in the explanation, not hidden in the weight");
 });
+
+// ---------- commercial pursuits: the board that never persisted ----------
+const { nextStage, pipeline, STAGES: PSTAGES, STAGE_ODDS } = await import("./commercial.ts");
+
+Deno.test("nextStage: the Advance button now has behaviour, and terminal stages do not advance", () => {
+  // The old board rendered data-act="intel.advance" on every row with no handler of that name. Clicking it did
+  // nothing at all, which is the "stage buttons lack complete handlers" symptom, exactly.
+  assertEquals(nextStage("Research"), "Contacted");
+  assertEquals(nextStage("Contacted"), "Qualified");
+  assertEquals(nextStage("Qualified"), "Proposed");
+  assertEquals(nextStage("Proposed"), "Won");
+  assertEquals(nextStage("Won"), null, "a won pursuit must not advance further");
+  assertEquals(nextStage("Lost"), null, "a lost pursuit must not advance further");
+  assertEquals(nextStage("nonsense"), "Research", "an unknown stage falls back to the start, never crashes");
+});
+
+Deno.test("pipeline: weighted value is a planning figure and says so", () => {
+  const rows = [
+    { stage: "Research", value: 100000, due: "2099-01-01" },
+    { stage: "Proposed", value: 100000, due: "2099-01-01" },
+    { stage: "Won", value: 50000 },
+    { stage: "Lost", value: 20000 },
+  ];
+  const p = pipeline(rows, new Date("2026-09-22T12:00:00Z"));
+  assertEquals(p.open_count, 2, "Won and Lost are not open pipeline");
+  assertEquals(p.open_value, 200000);
+  // 100k at .1 + 100k at .6 = 70k. The raw open value is nearly 3x that.
+  assertEquals(p.weighted_value, 70000);
+  assert(p.weighted_value < p.open_value, "weighting must discount, never inflate");
+  assertEquals(p.won_value, 50000);
+  assertEquals(p.lost_value, 20000);
+  assert(/not a commitment/i.test(p.note), "the figure must carry its own caveat");
+  assert(p.stage_odds.Research < p.stage_odds.Proposed, "later stages must be likelier");
+});
+
+Deno.test("pipeline: an overdue board is reported as overdue, not quietly counted as healthy", () => {
+  const rows = [
+    { id: "a", stage: "Qualified", value: 10, due: "2026-09-01", account: "Late one", next_action: "call" },
+    { id: "b", stage: "Qualified", value: 10, due: "2099-01-01", account: "Fine", next_action: "call" },
+    { id: "c", stage: "Lost", value: 10, due: "2026-01-01", account: "Already lost" },
+  ];
+  const p = pipeline(rows, new Date("2026-09-22T12:00:00Z"));
+  assertEquals(p.overdue_count, 1, "only OPEN pursuits can be overdue");
+  assertEquals(p.overdue[0].account, "Late one");
+  assert(p.overdue[0].next_action, "an overdue row must carry what was supposed to happen");
+});
+
+Deno.test("pipeline: every stage appears even at zero, so an empty column is visible rather than missing", () => {
+  const p = pipeline([{ stage: "Research", value: 1 }]);
+  for (const s of PSTAGES) assert(p.by_stage[s], `${s} missing from the board`);
+  assertEquals(p.by_stage.Proposed.count, 0);
+});
+
+Deno.test("STAGE_ODDS: a lost pursuit contributes nothing and a won one contributes all of it", () => {
+  assertEquals(STAGE_ODDS.Lost, 0);
+  assertEquals(STAGE_ODDS.Won, 1);
+});
