@@ -106,7 +106,11 @@ if ($doStripe) {
   try {
     $acct = Invoke-RestMethod -Uri "https://api.stripe.com/v1/account" -Headers @{ Authorization = "Bearer $ST_KEY" } -Method Get
     $mode = if ($ST_KEY -match '^sk_live_') { "LIVE" } else { "test" }
-    Say "  OK - $mode key for account '$($acct.business_profile.name ?? $acct.id)'; charges_enabled=$($acct.charges_enabled)" "Green"
+    # NOTE: no ?? here. Windows PowerShell 5.1 has no null-coalescing operator, and this script promises to run
+    # on 5.1 as well as 7 - so the fallback is spelled out longhand.
+    $who = $acct.business_profile.name
+    if (-not $who) { $who = $acct.id }
+    Say "  OK - $mode key for account '$who'; charges_enabled=$($acct.charges_enabled)" "Green"
     if ($acct.charges_enabled -ne $true -and $mode -eq "LIVE") {
       Say "  WARNING: this account cannot accept charges yet - finish Stripe onboarding before relying on deposit links." "Yellow"
     }
@@ -121,11 +125,13 @@ if (-not $doTwilio -and -not $doStripe) { Say "Nothing to do." "Yellow"; exit 0 
 Write-Host ""
 Say "Every credential passed. Setting Supabase secrets..." "Cyan"
 
-$args = @()
-if ($doTwilio) { $args += "TWILIO_ACCOUNT_SID=$TW_SID"; $args += "TWILIO_AUTH_TOKEN=$TW_TOK"; $args += "TWILIO_FROM=$TW_FROM" }
-if ($doStripe) { $args += "STRIPE_SECRET_KEY=$ST_KEY" }
+# NOTE: not $args - that is a PowerShell automatic variable holding the script's own arguments, and
+# overwriting it then splatting it back is asking for trouble.
+$secretArgs = @()
+if ($doTwilio) { $secretArgs += "TWILIO_ACCOUNT_SID=$TW_SID"; $secretArgs += "TWILIO_AUTH_TOKEN=$TW_TOK"; $secretArgs += "TWILIO_FROM=$TW_FROM" }
+if ($doStripe) { $secretArgs += "STRIPE_SECRET_KEY=$ST_KEY" }
 
-& supabase secrets set @args --project-ref $REF
+& supabase secrets set @secretArgs --project-ref $REF
 if ($LASTEXITCODE -ne 0) { throw "supabase secrets set failed. Are you linked? Run: supabase link --project-ref $REF" }
 
 Say ""
