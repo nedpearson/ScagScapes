@@ -77,7 +77,7 @@ export async function event(t: string, kind: string, who: string, body: string, 
   await sb.from("ss_events").insert({ tenant_id: t, kind, who, body, ref_type: ref?.type, ref_id: ref?.id });
 }
 export const integrations = () => ({
-  twilio: !!(Deno.env.get("TWILIO_ACCOUNT_SID") && Deno.env.get("TWILIO_AUTH_TOKEN") && Deno.env.get("TWILIO_FROM")),
+  twilio: !!(Deno.env.get("TWILIO_ACCOUNT_SID") && Deno.env.get("TWILIO_FROM") && (Deno.env.get("TWILIO_AUTH_TOKEN") || (Deno.env.get("TWILIO_API_KEY_SID") && Deno.env.get("TWILIO_API_KEY_SECRET")))),
   stripe: !!Deno.env.get("STRIPE_SECRET_KEY"),
   brave: !!Deno.env.get("BRAVE_API_KEY"),
   resend: !!Deno.env.get("RESEND_API_KEY"),
@@ -88,8 +88,15 @@ export async function send(t: string, channel: "sms" | "email" | "push", to: str
   const row: any = { tenant_id: t, channel, to, body, status: "simulated", ref_type: ref?.type, ref_id: ref?.id };
   try {
     if (channel === "sms" && integrations().twilio) {
-      const sid = Deno.env.get("TWILIO_ACCOUNT_SID")!, tok = Deno.env.get("TWILIO_AUTH_TOKEN")!, from = Deno.env.get("TWILIO_FROM")!;
-      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, { method: "POST", headers: { Authorization: "Basic " + btoa(sid + ":" + tok), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ To: to.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1"), From: from, Body: body }) });
+      const sid = Deno.env.get("TWILIO_ACCOUNT_SID")!, from = Deno.env.get("TWILIO_FROM")!;
+      // Prefer a restricted API key over the account-level Auth Token. The Auth Token reaches every API on the
+      // account - and this Twilio account is shared across Ned's other ventures, so a leak there is not confined
+      // to Scag Scapes. An API key is revocable on its own and can be scoped to messaging. The URL always keeps
+      // the AC... Account SID; only the Basic-auth username/password change.
+      const keySid = Deno.env.get("TWILIO_API_KEY_SID"), keySecret = Deno.env.get("TWILIO_API_KEY_SECRET");
+      const user = keySid && keySecret ? keySid : sid;
+      const pass = keySid && keySecret ? keySecret : Deno.env.get("TWILIO_AUTH_TOKEN")!;
+      const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, { method: "POST", headers: { Authorization: "Basic " + btoa(user + ":" + pass), "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ To: to.replace(/[^\d+]/g, "").replace(/^(\d{10})$/, "+1$1"), From: from, Body: body }) });
       const j = await r.json(); if (r.ok) { row.status = "sent"; row.provider = "twilio"; row.provider_id = j.sid; } else { row.status = "failed"; row.provider = "twilio"; row.error = j.message; }
     } else if (channel === "email" && integrations().resend) {
       const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: "Bearer " + Deno.env.get("RESEND_API_KEY"), "content-type": "application/json" }, body: JSON.stringify({ from: "Scag Scapes <charlie@scagscapes.com>", to: [to], subject: body.split("\n")[0].slice(0, 80), text: body }) });

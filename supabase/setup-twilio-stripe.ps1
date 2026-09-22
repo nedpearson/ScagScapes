@@ -43,21 +43,59 @@ Say "TWILIO  (console.twilio.com - Account SID and Auth Token are on the dashboa
 Say "If you have no account yet, stop here and create one first; this script cannot do that for you." "DarkGray"
 Write-Host ""
 
+Say "You need a Twilio PHONE NUMBER before this can work. A trial account with no number cannot send." "DarkGray"
+Say "If Active Numbers is empty, answer N here and come back after you have funded the account." "DarkGray"
+Write-Host ""
+
 $doTwilio = (Read-Host "Set up Twilio now? [y/N]") -match '^[Yy]'
-$TW_SID = $null; $TW_TOK = $null; $TW_FROM = $null
+$TW_SID = $null; $TW_TOK = $null; $TW_FROM = $null; $TW_KEYSID = $null; $TW_KEYSEC = $null
 
 if ($doTwilio) {
-  $TW_SID  = Read-Host "TWILIO_ACCOUNT_SID  (starts AC...)"
-  $TW_TOK  = Read-Secret "TWILIO_AUTH_TOKEN   (input hidden)"
+  # Trim: a value pasted from a console often arrives with a stray space or a trailing backslash from the shell.
+  $TW_SID = (Read-Host "TWILIO_ACCOUNT_SID  (starts AC...)").Trim().TrimEnd('\')
+
+  # Validate the prefix. An earlier run had an API Key SID pasted here; the script said "starts AC..." but did
+  # not check, so it sailed past and only failed three prompts later for an unrelated reason.
+  if ($TW_SID -match '^SK') {
+    Say ""
+    Say "  That is an API Key SID (SK...), not an Account SID (AC...)." "Yellow"
+    Say "  They are different credentials. The Account SID is on the console dashboard and always starts AC." "Yellow"
+    Say "  An API key is the BETTER credential to send with - it is revocable on its own and can be scoped to" "Yellow"
+    Say "  messaging - but it goes in as a key PAIR alongside the Account SID, not instead of it." "Yellow"
+    Write-Host ""
+    $TW_KEYSID = $TW_SID
+    $TW_SID = (Read-Host "  Account SID (AC...)").Trim().TrimEnd('\')
+    $TW_KEYSEC = Read-Secret "  API key SECRET for $TW_KEYSID (input hidden)"
+  }
+  if ($TW_SID -notmatch '^AC[0-9a-fA-F]{32}$') { throw "TWILIO_ACCOUNT_SID must be AC followed by 32 hex characters. Nothing stored. Got: $TW_SID" }
+
+  if (-not $TW_KEYSEC) {
+    Say ""
+    Say "  Auth Token reaches EVERY API on this account, and this account is shared with your other ventures." "DarkGray"
+    Say "  A restricted API key scoped to messaging is safer. Leave blank to use the Auth Token instead." "DarkGray"
+    $TW_KEYSID = (Read-Host "  TWILIO_API_KEY_SID  (SK..., or blank for Auth Token)").Trim().TrimEnd('\')
+    if ($TW_KEYSID) {
+      if ($TW_KEYSID -notmatch '^SK[0-9a-fA-F]{32}$') { throw "An API key SID must be SK followed by 32 hex characters. Nothing stored." }
+      $TW_KEYSEC = Read-Secret "  TWILIO_API_KEY_SECRET (input hidden)"
+    } else {
+      $TW_TOK = Read-Secret "  TWILIO_AUTH_TOKEN   (input hidden)"
+      if (-not $TW_TOK) { throw "No credential given. Nothing stored." }
+    }
+  }
+
   # NOTE: the code reads TWILIO_FROM, not TWILIO_FROM_NUMBER. Getting this name wrong is a silent failure -
   # integrations().twilio stays false and every message keeps logging as "simulated" with no error at all.
-  $TW_FROM = Read-Host "TWILIO_FROM         (your Twilio number, E.164 e.g. +12255551234)"
+  $TW_FROM = (Read-Host "TWILIO_FROM         (your Twilio number, E.164 e.g. +12255551234)").Trim()
 
+  if (-not $TW_FROM) { throw "No number given. If you have not bought a Twilio number yet, re-run and answer N to Twilio - Stripe can still be set up on its own. Nothing stored." }
   if ($TW_FROM -notmatch '^\+\d{10,15}$') { throw "TWILIO_FROM must be E.164, starting with + and country code (e.g. +12255551234). Got: $TW_FROM" }
 
   Say ""
   Say "Checking the credentials against Twilio..." "Cyan"
-  $pair = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($TW_SID):$($TW_TOK)"))
+  # Basic auth is either AccountSid:AuthToken or ApiKeySid:ApiKeySecret. The URL keeps the Account SID either way.
+  $authUser = if ($TW_KEYSID -and $TW_KEYSEC) { $TW_KEYSID } else { $TW_SID }
+  $authPass = if ($TW_KEYSID -and $TW_KEYSEC) { $TW_KEYSEC } else { $TW_TOK }
+  $pair = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($authUser):$($authPass)"))
   try {
     $acct = Invoke-RestMethod -Uri "https://api.twilio.com/2010-04-01/Accounts/$TW_SID.json" `
               -Headers @{ Authorization = "Basic $pair" } -Method Get
@@ -128,7 +166,11 @@ Say "Every credential passed. Setting Supabase secrets..." "Cyan"
 # NOTE: not $args - that is a PowerShell automatic variable holding the script's own arguments, and
 # overwriting it then splatting it back is asking for trouble.
 $secretArgs = @()
-if ($doTwilio) { $secretArgs += "TWILIO_ACCOUNT_SID=$TW_SID"; $secretArgs += "TWILIO_AUTH_TOKEN=$TW_TOK"; $secretArgs += "TWILIO_FROM=$TW_FROM" }
+if ($doTwilio) {
+    $secretArgs += "TWILIO_ACCOUNT_SID=$TW_SID"; $secretArgs += "TWILIO_FROM=$TW_FROM"
+    if ($TW_KEYSID -and $TW_KEYSEC) { $secretArgs += "TWILIO_API_KEY_SID=$TW_KEYSID"; $secretArgs += "TWILIO_API_KEY_SECRET=$TW_KEYSEC" }
+    else { $secretArgs += "TWILIO_AUTH_TOKEN=$TW_TOK" }
+  }
 if ($doStripe) { $secretArgs += "STRIPE_SECRET_KEY=$ST_KEY" }
 
 & supabase secrets set @secretArgs --project-ref $REF
