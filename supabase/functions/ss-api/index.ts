@@ -43,6 +43,7 @@ import { reports } from "./reports.ts";
 import { geo } from "./geo.ts";
 import { ads } from "./ads.ts";
 import { readiness } from "./readiness.ts";
+import { db } from "./db.ts";
 import { PRICE_RE } from "./evals.ts";
 
 // ---------- stage machine ----------
@@ -82,7 +83,7 @@ Deno.serve(async (req) => {
   try {
     if (path === "/health") return json({ ok: true, version: VERSION, time: new Date().toISOString(), integrations: integrations() });
     const tenant = await tenantFrom(req); const t = tenant.id; const settings = tenant.settings ?? {};
-    const body = req.method === "POST" ? (await req.json().catch(() => ({}))) : {};
+    const body = (req.method === "POST" || req.method === "PATCH") ? (await req.json().catch(() => ({}))) : {};
 
     if (path === "/kpis" && req.method === "GET") { const { data } = await sb.from("ss_kpis").select("*").eq("tenant_id", t).single(); return json(data); }
     if (path === "/slots") return json(await openSlots(t, Number(url.searchParams.get("n") || 6)));
@@ -206,6 +207,7 @@ Deno.serve(async (req) => {
     const ares = await ai(path, req, url, body, t); if (ares) return ares;
     const fres = await fieldops(path, req, url, body, t, settings); if (fres) return fres; const rres = await resources(path, req, url, body, t, settings); if (rres) return rres;
     const sres = await sourcing(path, req, url, body, t); if (sres) return sres;
+    const dres = await db(path, req, url, body, t, settings); if (dres) return dres;
     return json({ error: "not found", path }, 404);
   } catch (e) { const m = (e as Error).message; return json({ error: m }, m === "unauthorized" ? 401 : 500); }
 });

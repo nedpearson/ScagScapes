@@ -466,12 +466,21 @@ const tAgo=s=>{const ms=Date.now()-new Date(s).getTime();const m=Math.round(ms/6
 const tShort=s=>{const d=new Date(s);const same=iso(d)===iso(new Date());return same?d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):DAYN[d.getDay()]+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})};
 
 /* ---------- config: live backend ---------- */
-const CFG={url:'https://cscowglyrgxqxwcnftzt.supabase.co',key:'sb_publishable_M1JCtQtF7B2NgcHrlH5JDQ_amdA8kr9',fn:'/functions/v1/ss-api',tenant:'demo'};
+function tenantCfg(){
+  let tenant='demo',ssKey='';
+  try{
+    const p=new URLSearchParams(location.search);
+    if(p.get('tenant')){tenant=p.get('tenant');ssKey=p.get('key')||'';localStorage.setItem('ssc-tenant',tenant);localStorage.setItem('ssc-key',ssKey);history.replaceState(null,'',location.pathname)}
+    else{tenant=localStorage.getItem('ssc-tenant')||'demo';ssKey=localStorage.getItem('ssc-key')||''}
+  }catch(e){}
+  return {tenant,ssKey}
+}
+const CFG={url:'https://cscowglyrgxqxwcnftzt.supabase.co',key:'sb_publishable_M1JCtQtF7B2NgcHrlH5JDQ_amdA8kr9',fn:'/functions/v1/ss-api',...tenantCfg()};
 let MODE=(()=>{try{return localStorage.getItem('ssc-mode')||'live'}catch(e){return 'live'}})();
 const LIVE=()=>MODE==='live';
 const LAB_RATE=45;
-async function api(path,body,method){const r=await fetch(CFG.url+CFG.fn+path,{method:method||(body?'POST':'GET'),headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('API '+r.status));return j}
-async function rest(table,query,opts={}){const r=await fetch(CFG.url+'/rest/v1/'+table+(query?'?'+query:''),{method:opts.method||'GET',headers:{apikey:CFG.key,Authorization:'Bearer '+CFG.key,'content-type':'application/json',Prefer:opts.prefer||'return=representation'},body:opts.body?JSON.stringify(opts.body):undefined});if(!r.ok){const t=await r.text();throw new Error(table+' '+r.status+' '+t.slice(0,120))}const t=await r.text();return t?JSON.parse(t):null}
+async function api(path,body,method){const r=await fetch(CFG.url+CFG.fn+path,{method:method||(body?'POST':'GET'),headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant,'x-ss-key':CFG.ssKey},body:body?JSON.stringify(body):undefined});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('API '+r.status));return j}
+async function rest(table,query,opts={}){const r=await fetch(CFG.url+CFG.fn+'/db/'+table+(query?'?'+query:''),{method:opts.method||'GET',headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant,'x-ss-key':CFG.ssKey,Prefer:opts.prefer||'return=representation'},body:opts.body?JSON.stringify(opts.body):undefined});if(!r.ok){const t=await r.text();throw new Error(table+' '+r.status+' '+t.slice(0,120))}const t=await r.text();return t?JSON.parse(t):null}
 const ins=(t,row)=>rest(t,'',{method:'POST',body:{tenant_id:CFG.tenant,...row}});
 const up=(t,patch,q)=>rest(t,q,{method:'PATCH',body:patch});
 const del=(t,q)=>rest(t,q,{method:'DELETE'});
@@ -1092,7 +1101,7 @@ const A={
   'tpl.save':id=>run(async()=>{const v=$('#tplText').value;S.settings.tpl[id]=v;if(LIVE())await up('ss_automations',{template:v},`tenant_id=eq.${CFG.tenant}&key=eq.${id}`);log('Template updated',(TPLS.find(t=>t[0]===id)||[])[1]||id,'');closeAll();renderAll();toast('Saved')},'Save'),
   'edge.open':id=>edgeDrawer(+id),
   'api.try':id=>apiTrySheet(+id),
-  'api.send':id=>run(async()=>{const e=API_DOCS[+id];const out=$('#apiOut');out.textContent='…';let body=null;if(e[3]){try{body=JSON.parse($('#apiBody').value)}catch(err){out.textContent='Invalid JSON: '+err.message;return}}const t0=performance.now();try{const r=await fetch(CFG.url+CFG.fn+e[1],{method:e[0],headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant},body:body?JSON.stringify(body):undefined});const j=await r.json();out.textContent=`HTTP ${r.status} · ${Math.round(performance.now()-t0)} ms\n`+JSON.stringify(j,null,2)}catch(err){out.textContent='Error: '+err.message}if(LIVE()&&e[0]==='POST')await refresh()},'API'),
+  'api.send':id=>run(async()=>{const e=API_DOCS[+id];const out=$('#apiOut');out.textContent='…';let body=null;if(e[3]){try{body=JSON.parse($('#apiBody').value)}catch(err){out.textContent='Invalid JSON: '+err.message;return}}const t0=performance.now();try{const r=await fetch(CFG.url+CFG.fn+e[1],{method:e[0],headers:{apikey:CFG.key,'content-type':'application/json','x-tenant':CFG.tenant,'x-ss-key':CFG.ssKey},body:body?JSON.stringify(body):undefined});const j=await r.json();out.textContent=`HTTP ${r.status} · ${Math.round(performance.now()-t0)} ms\n`+JSON.stringify(j,null,2)}catch(err){out.textContent='Error: '+err.message}if(LIVE()&&e[0]==='POST')await refresh()},'API'),
 };
 async function saveSettings(){const s=S.settings;await up('ss_tenants',{settings:{deposit_pct:s.deposit,rain_threshold_in:s.threshold,hours:s.hours,notify:s.notify,warranty:s.warranty,owner:'Charlie Mascagni',city:'Baton Rouge, LA'}},`id=eq.${CFG.tenant}`)}
 
