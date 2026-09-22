@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-export const VERSION = "1.6.0";
+export const VERSION = "1.7.0";
 export const STATUS = { LIVE: "LIVE_VERIFIED", POSTED: "PROVIDER_POSTED", CALL: "CALL_TO_CONFIRM", EST: "ESTIMATED", NA: "UNAVAILABLE", STALE: "STALE", ERR: "CONNECTION_ERROR" } as const;
 export const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 export const CORS = {

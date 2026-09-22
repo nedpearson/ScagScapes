@@ -21,6 +21,21 @@ jobs:
           "
           node --check /tmp/app.js
 
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm install playwright@latest --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: operator scripts are PowerShell 5.1-safe
+        # A script whose header promised it ran on 5.1 shipped with a `??` and died in the operator's hands at
+        # the worst moment. pwsh cannot catch that on its own - it parses PS7 syntax happily - so this gates it.
+        shell: pwsh
+        run: pwsh -NoProfile -File tools/check-ps-compat.ps1
+
+      - name: local smoke against the working tree (not the deployment)
+        # The deployment smoke below can only test what is already live. This one opens the tree being pushed,
+        # so a broken field form or a plan card that renders nothing fails the PR rather than production.
+        run: node tests/local-smoke.mjs
+
   smoke:
     # Every unit test above passed while the app silently showed offline sample numbers under a "Live" badge,
     # because nothing in the suite loaded the page. This job does: it opens the real deployment in a real browser

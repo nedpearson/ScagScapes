@@ -196,3 +196,31 @@ export async function resources(path: string, req: Request, url: URL, body: any,
   if (path === "/pricing/equipment") { const [{ data: assets }, { data: cards }] = await Promise.all([sb.from("ss_equipment_assets").select("id,asset_no,category,make,model,hourly_cost,daily_cost,ownership,status").eq("tenant_id", t).order("asset_no"), sb.from("ss_rate_cards").select("item,category,brand,day,week,verified,checked_at")]); return json((assets ?? []).map((a: any) => { const cat = (a.category || "").toLowerCase(); const key = cat.includes("excavator") ? "excavator" : cat.includes("skid") || cat.includes("track loader") ? "loader" : cat.includes("trencher") ? "trencher" : cat.includes("compactor") ? "compact" : cat.includes("sod") ? "sod" : cat.includes("trailer") ? "trailer" : ""; const alt = key ? (cards ?? []).filter((c: any) => c.category === key || c.item.toLowerCase().includes(key)).sort((x: any, y: any) => num(x.day) - num(y.day))[0] : null; return { ...a, rental_equivalent: alt ? { item: alt.item, brand: alt.brand, day: alt.day, week: alt.week, status: alt.verified ? STATUS.POSTED : STATUS.EST, checked_at: alt.checked_at } : null, own_vs_rent_day: alt?.day ? Math.round((num(alt.day) - num(a.daily_cost)) * 100) / 100 : null }; })); }
   return null;
 }
+
+// ---------- reliability, from Scag's own record with each vendor ----------
+//
+// `performance()` has computed a reliability figure per vendor since v1.4, and `scoreOptions()` has weighted
+// reliability at 10% since v1.3 — but the two were never connected. Recovery ranking used a constant per option
+// *kind* (.75 mobile, .85 dealer, .8 rental), so a vendor that had cancelled on Scag twice scored exactly the
+// same as one that had never missed. The whole point of collecting feedback is that it changes a decision.
+//
+// Under three events a vendor keeps the neutral .7 that performance() already defines, so a new vendor is not
+// punished for being new and a single bad day cannot blackball anyone.
+export async function reliabilityMap(t: string): Promise<Map<string, number>> {
+  const [res, opts, fb] = await Promise.all([
+    sb.from("ss_reservations").select("vendor_id,status").eq("tenant_id", t),
+    sb.from("ss_recovery_options").select("vendor_id,cost,call_outcome,created_at").eq("tenant_id", t).not("vendor_id", "is", null),
+    sb.from("ss_provider_feedback").select("*").eq("tenant_id", t),
+  ]);
+  const ids = new Set<string>([...(res.data ?? []), ...(opts.data ?? []), ...(fb.data ?? [])].map((r: any) => r.vendor_id).filter(Boolean));
+  const out = new Map<string, number>();
+  for (const id of ids) {
+    const p = performance(
+      (res.data ?? []).filter((r: any) => r.vendor_id === id),
+      (opts.data ?? []).filter((o: any) => o.vendor_id === id),
+      (fb.data ?? []).filter((f: any) => f.vendor_id === id),
+    );
+    out.set(id, Math.round(p.reliability * 100) / 100);
+  }
+  return out;
+}

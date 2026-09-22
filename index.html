@@ -1164,7 +1164,7 @@ function reservationsHTML(){
   <div class="panel"><header><h3>Reservations</h3><span class="hint">${SRC.reservations.length} total</span></header>${SRC.reservations.length?`<div class="tbl-wrap"><table><thead><tr><th>Item</th><th>Vendor</th><th>When</th><th>Est.</th><th>Status</th><th></th></tr></thead><tbody>${SRC.reservations.map(r=>{const s=st[r.status]||[r.status,'mute'];return `<tr><td><b>${esc(r.item)}</b><span class="sub">${r.qty>1?r.qty+' × ':''}${r.contact?esc(r.contact):''}</span></td><td>${esc(r.vendor?r.vendor.name:r.brand||'')}<span class="sub">${esc(r.vendor?.phone||'')}</span></td><td>${dLabel(r.start_date)}<span class="sub">${r.days} day${r.days>1?'s':''}</span></td><td class="mono">${fmt(r.est_total)}</td><td><span class="pill ${s[1]}">${s[0]}</span></td><td><div class="row-actions">${r.status==='requested'?`<button class="btn sm primary" data-act="rent.act" data-id="${r.id}|confirm">Confirm</button>`:''}${r.status==='confirmed'?`<button class="btn sm" data-act="rent.act" data-id="${r.id}|pickup">Picked up</button>`:''}${['active','picked_up'].includes(r.status)?`<button class="btn sm" data-act="rent.act" data-id="${r.id}|extend">Extend</button><button class="btn sm" data-act="rent.act" data-id="${r.id}|return-scheduled">Schedule return</button>`:''}${['active','picked_up','return_scheduled'].includes(r.status)?`<button class="btn sm" data-act="rent.act" data-id="${r.id}|returned">Returned</button>`:''}${['requested','confirmed'].includes(r.status)?`<button class="btn sm danger" data-act="rent.act" data-id="${r.id}|cancel">Cancel</button>`:''}${r.confirmation?`<span class="pill mute mono">#${esc(r.confirmation)}</span>`:''}${r.end_date&&['active','confirmed','return_scheduled'].includes(r.status)?`<span class="pill ${r.end_date<iso(TODAY)?'crit':'mute'}">due ${dLabel(r.end_date)}</span>`:''}${r.vendor?.meta?.url?`<a class="btn sm ghost" href="${r.vendor.meta.url}" target="_blank" rel="noopener">↗</a>`:''}</div></td></tr>`}).join('')}</tbody></table></div>`:'<div class="empty">No reservations yet — compare rentals and tap Reserve.</div>'}</div>
   <div class="grid" style="align-content:start">
     <div class="panel"><header><h3>Price alerts</h3><span class="hint">checked on every lookup; push + in-app</span></header><div class="body">${SRC.alerts.length?SRC.alerts.map(a=>`<div class="toggle"><div><div class="tt">${esc(a.kind)} · ${esc(a.target)} ≤ ${a.kind==='fuel'?'$'+Number(a.threshold).toFixed(2):fmt(a.threshold)}</div><div class="td">${a.last_fired?'last fired '+tAgo(a.last_fired):'not fired yet'} · ${esc(a.channel)}</div></div><div class="row-actions"><button class="sw ${a.active?'on':''}" role="switch" aria-checked="${a.active}" data-act="src.alertToggle" data-id="${a.id}"></button><button class="btn sm ghost" data-act="src.alertDel" data-id="${a.id}">✕</button></div></div>`).join(''):'<div class="empty">No alerts. Use the 🔔 buttons on rentals, materials or fuel.</div>'}</div></div>
-    <div class="panel"><header><h3>Notifications</h3><span class="hint">${SRC.unread} unread</span><button class="btn sm ghost" data-act="notif.readall">Mark all read</button></header><div class="body">${SRC.notifs.length?SRC.notifs.slice(0,12).map(n=>`<div class="fact" style="${n.read?'':'font-weight:500'}"><span class="pill ${n.kind==='alert'?'warn':'new'}">${esc(n.kind)}</span> ${esc(n.title)}<br><span style="font-size:12px;color:var(--ink3)">${esc(n.body||'')} · ${tAgo(n.created_at)}</span></div>`).join(''):'<div class="empty">Quiet.</div>'}</div></div>
+    <div class="panel"><header><h3>Notifications</h3><span class="hint">${SRC.unread} unread</span><button class="btn sm ghost" data-act="notif.readall">Mark all read</button></header><div class="body">${SRC.notifs.length?SRC.notifs.slice(0,12).map(n=>`<div class="fact" style="${n.read?'':'font-weight:500'}">${notifPill(n)}<span class="pill ${n.kind==='alert'?'warn':'new'}">${esc(n.kind)}</span> ${esc(n.title)}<br><span style="font-size:12px;color:var(--ink3)">${esc(n.body||'')} · ${tAgo(n.created_at)}</span>${notifAck(n)}</div>`).join(''):'<div class="empty">Quiet.</div>'}</div></div>
   </div></div>`;
 }
 function reserveSheet(i){const r=SRC.rentals.rows[i];const jobs=S.jobs.filter(j=>j.stage>0&&j.stage<4);const start=iso(addD(TODAY,1));
@@ -1173,9 +1173,15 @@ function reserveSheet(i){const r=SRC.rentals.rows[i];const jobs=S.jobs.filter(j=
     <p style="font-size:12.5px;color:var(--ink2);margin:0">${r.reserve==='web'?'Home Depot takes reservations online; this logs it, opens their page, and notifies you.':'The branch gets a text with the item, dates and job address. You get a push when they confirm.'}</p></div>
     <div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="src.reserveConfirm" data-id="${i}">${r.reserve==='web'?'Log & open Home Depot':'Send request'}</button></div>`)}
 function alertSheet(kind,target,def){openSheet(`<header><h3>Price alert</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div class="form"><div class="full"><label class="fl">Watching</label><div style="font-size:13px">${esc(kind)} · <b>${esc(target)}</b></div></div><div><label class="fl" for="alTh">Notify when ≤</label><input id="alTh" type="number" step="${kind==='fuel'?'0.01':'1'}" value="${def}"></div><div><label class="fl" for="alCh">Channel</label><select id="alCh"><option value="push">Push + in-app</option><option value="sms">Text Charlie</option></select></div></div></div><div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="src.alertSave" data-id="${esc(kind)}|${esc(target)}">Save alert</button></div>`)}
+/* A critical notice that nobody acknowledged is a log line, not a notification - so it is shown as unanswered
+   until someone says they have it, and the escalation sweep climbs it if they do not. */
+const notifPill=n=>n.urgency==='critical'?'<span class="pill warn">critical</span> ':n.urgency==='high'?'<span class="pill new">high</span> ':'';
+const notifAck=n=>n.needs_ack&&!n.ack_at
+  ? `<div class="row-actions" style="margin-top:6px"><button class="btn sm primary" data-act="notif.ack" data-id="${n.id}">Acknowledge</button>${n.escalate_after_min?`<span class="muted" style="font-size:11px">escalates to ${esc(n.escalate_to||'admin')} after ${n.escalate_after_min} min</span>`:''}</div>`
+  : n.ack_at ? `<div class="muted" style="font-size:11px;margin-top:4px">acknowledged by ${esc(n.ack_by||'—')}</div>` : '';
 async function loadNotifs(){try{const n=await api('/notifications');SRC.notifs=n;SRC.unread=n.filter(x=>!x.read).length;const b=$('#bellCount');if(b){b.textContent=SRC.unread||'';b.hidden=!SRC.unread}}catch(e){}}
 async function loadSourcingSide(){try{[SRC.reservations,SRC.alerts]=await Promise.all([api('/sourcing/reservations'),api('/alerts')]);if(S.ui.sec==='sourcing'&&!SRC.loading)renderSourcing()}catch(e){}}
-function notifDrawer(){openDrawer(`<header><div><h3>Notifications</h3><div class="sub">${SRC.unread} unread · reservations, price alerts, automations</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="dbody"><div class="row-actions"><button class="btn sm" data-act="notif.readall">Mark all read</button><button class="btn sm ghost" data-act="nav" data-id="sourcing">Sourcing ›</button><button class="btn sm ghost" data-act="push.enable">Enable push on this device</button></div>${SRC.notifs.length?SRC.notifs.map(n=>`<div class="fact" style="${n.read?'':'font-weight:500'}"><span class="pill ${n.kind==='alert'?'warn':'new'}">${esc(n.kind)}</span> ${esc(n.title)}<br><span style="font-size:12px;color:var(--ink3);font-weight:400">${esc(n.body||'')} · ${tAgo(n.created_at)}</span></div>`).join(''):'<div class="empty">Quiet.</div>'}</div>`)}
+function notifDrawer(){openDrawer(`<header><div><h3>Notifications</h3><div class="sub">${SRC.unread} unread · reservations, price alerts, automations</div></div><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="dbody"><div class="row-actions"><button class="btn sm" data-act="notif.readall">Mark all read</button><button class="btn sm ghost" data-act="nav" data-id="sourcing">Sourcing ›</button><button class="btn sm ghost" data-act="push.enable">Enable push on this device</button></div>${SRC.notifs.length?SRC.notifs.map(n=>`<div class="fact" style="${n.read?'':'font-weight:500'}">${notifPill(n)}<span class="pill ${n.kind==='alert'?'warn':'new'}">${esc(n.kind)}</span> ${esc(n.title)}<br><span style="font-size:12px;color:var(--ink3);font-weight:400">${esc(n.body||'')} · ${tAgo(n.created_at)}</span>${notifAck(n)}</div>`).join(''):'<div class="empty">Quiet.</div>'}</div>`)}
 async function setSite(id){SRC.site=id;const o=siteOptions().find(x=>x.id===id);if(!o)return;SRC.siteLabel=o.label;if(o.lat&&o.lng){SRC.lat=o.lat;SRC.lng=o.lng}else if(o.addr){try{const g=await api('/geo/geocode?q='+encodeURIComponent(o.addr)+(LIVE()&&o.leadId?'&lead_id='+o.leadId:''));if(g&&g.lat){SRC.lat=g.lat;SRC.lng=g.lng;const l=lead(o.leadId);if(l){l.lat=g.lat;l.lng=g.lng}}else toast('Could not geocode that address')}catch(e){toast('Geocode failed: '+e.message)}}SRC.rentals=SRC.materials=SRC.fuel=null}
 async function srcLoad(kind){SRC.loading=kind;renderSourcing();try{if(kind==='rentals')SRC.rentals=await api(`/sourcing/rentals?item=${encodeURIComponent(SRC.rItem)}&days=${SRC.rDays}&${ll()}`);if(kind==='materials')SRC.materials=await api(`/sourcing/materials?q=${encodeURIComponent(SRC.mQ)}&${ll()}`);if(kind==='fuel')SRC.fuel=await api(`/sourcing/fuel?${ll()}${SRC._refresh?'&refresh=1':''}`);if(kind==='research'){SRC.research=await api('/research',{q:SRC.rQ,lat:SRC.lat,lng:SRC.lng});SRC.rHist.unshift({q:SRC.rQ,created_at:new Date().toISOString()})}const fired=(SRC[kind]||{}).alerts_fired;if(fired&&fired.length){toast('Alert fired: '+fired[0].hit);loadNotifs()}}catch(e){toast('Lookup failed: '+e.message)}SRC.loading='';SRC._refresh=false;renderSourcing()}
 Object.assign(A,{
@@ -1198,6 +1204,7 @@ Object.assign(A,{
   'src.alertToggle':id=>run(async()=>{const a=SRC.alerts.find(x=>x.id===id);await api('/alerts/'+id,{active:!a.active});await loadSourcingSide();renderSourcing()},'Alert'),
   'src.alertDel':id=>run(async()=>{await api('/alerts/'+id,{delete:true});await loadSourcingSide();renderSourcing()},'Alert'),
   'notif.open':()=>{loadNotifs().then(notifDrawer)},
+  'notif.ack':id=>run(async()=>{await api('/notifications/'+id+'/ack',{actor:'Crew lead (demo)'});await loadNotifs();toast('Acknowledged');if(S.ui.sec==='sourcing')renderSourcing()},'Acknowledge'),
   'notif.readall':()=>run(async()=>{await api('/notifications/read',{});await loadNotifs();closeAll();if(S.ui.sec==='sourcing')renderSourcing()},'Notifications'),
 });
 R.sourcing=()=>{renderSourcing();if(!SRC.rentals&&SRC.tab==='rentals')srcLoad('rentals');loadSourcingSide()};
@@ -1219,7 +1226,7 @@ window.addEventListener('online',outboxSync);
 /* equipment */
 async function loadAssets(){FO.loading='assets';try{FO.assets=await api('/equipment')}catch(e){toast('Equipment: '+e.message)}FO.loading='';if(S.ui.sec==='equipment')renderEquipment()}
 function renderEquipment(){const q=outboxGet();
-  $('#s-equipment').innerHTML=`<div class="panel"><header><h3>Fleet</h3><div class="simbar"><input id="qrIn" placeholder="Scan / type QR (e.g. SS-EX-01)" style="width:200px"><button class="btn sm" data-act="eq.qr">Open</button><button class="btn sm primary" data-act="bd.new">Report breakdown</button></div></header>
+  $('#s-equipment').innerHTML=`<div class="panel"><header><h3>Fleet</h3><div class="simbar"><input id="qrIn" placeholder="Scan / type QR (e.g. SS-EX-01)" style="width:200px"><button class="btn sm" data-act="eq.qr">Open</button><button class="btn sm" data-act="eq.scan" title="Use the camera">Scan</button><button class="btn sm primary" data-act="bd.new">Report breakdown</button></div></header>
     ${q.length?`<div class="body" style="padding-bottom:0"><div class="fact" style="border-left:3px solid var(--warn);padding-left:10px">${q.length} breakdown report${q.length>1?'s':''} queued offline — <button class="btn sm" data-act="bd.sync">Sync now</button></div></div>`:''}
     <div class="tbl-wrap"><table><thead><tr><th>Asset</th><th>Category</th><th>Hours</th><th>Status</th><th>Crew</th><th>Warranty</th><th></th></tr></thead><tbody>${FO.loading?'<tr><td colspan="7" class="empty">Loading…</td></tr>':FO.assets.map(a=>`<tr class="click" data-act="eq.open" data-id="${a.id}"><td><b>${esc(a.asset_no)}</b><span class="sub">${esc(a.make||'')} ${esc(a.model||'')} ${a.model_year||''}</span></td><td>${esc(a.category)}</td><td class="mono">${a.hours}</td><td><span class="pill ${ASTAT[a.status]||'mute'}">${esc(a.status)}</span></td><td>${esc(a.crew||'—')}</td><td>${a.warranty_until?dLabel(a.warranty_until):'—'}</td><td><button class="btn sm" data-act="bd.new" data-id="${a.id}">Report breakdown</button></td></tr>`).join('')||'<tr><td colspan="7" class="empty">No assets.</td></tr>'}</tbody></table></div></div>
     <div class="grid g3 gap-t"><div class="panel"><div class="body"><div class="stat"><div class="l">Fleet</div><div class="v">${FO.assets.length} assets</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">${FO.assets.filter(a=>a.status==='Down').length} down · ${FO.assets.filter(a=>a.status==='Available').length} available · ${FO.assets.filter(a=>/Operating|Assigned/.test(a.status)).length} on jobs</p></div></div><div class="panel"><div class="body"><div class="stat"><div class="l">Daily operating cost</div><div class="v mono">${fmt(FO.assets.reduce((a,x)=>a+Number(x.daily_cost||0),0))}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Owned + financed, all units running.</p></div></div><div class="panel"><div class="body"><div class="stat"><div class="l">Fleet value</div><div class="v mono">${fmt(FO.assets.reduce((a,x)=>a+Number(x.est_value||0),0))}</div></div><p style="font-size:13px;color:var(--ink2);margin:10px 0 0">Estimated current value.</p></div></div></div>`;
@@ -1246,14 +1253,14 @@ function breakdownSheet(assetId){const jobs=S.jobs.filter(j=>j.stage>0&&j.stage<
       <div><label class="fl" for="bdCodes">Warning light / code</label><input id="bdCodes" placeholder="e.g. E-105 or 'oil light'"></div><div><label class="fl" for="bdAddr">Jobsite</label><input id="bdAddr" value="${esc(a&&a.assigned_job_id?'':'')}" placeholder="address or area"></div>
       <div><label class="fl" for="bdCrew">Crew affected</label><input id="bdCrew" type="number" value="2" min="1"></div><div><label class="fl" for="bdDown">Est. hours lost</label><input id="bdDown" type="number" value="4" min="0.5" step="0.5"></div>
       <div class="full" style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px"><label><input type="checkbox" id="bdMove" checked> Can move under its own power</label><label><input type="checkbox" id="bdTrans" checked> Can be trailered normally</label><label><input type="checkbox" id="bdRisk"> <b style="color:var(--crit)">Safety risk</b></label></div>
-      <div class="full"><label class="fl" for="bdPhotos">Photos (serial plate · damage · wide shot)</label><input id="bdPhotos" type="file" accept="image/*" multiple capture="environment"></div>
+      <div class="full"><label class="fl" for="bdPhotos">Photos (serial plate · damage · wide shot)</label><input id="bdPhotos" type="file" accept="image/*" multiple capture="environment"></div><div class="full"><label class="fl" for="bdVideo">Short video — a noise or a movement a photo cannot show</label><input id="bdVideo" type="file" accept="video/*" capture="environment"></div><div class="full"><label class="fl">Voice note — faster than typing with gloves on</label><div class="row-actions"><button type="button" class="btn sm" id="bdRecBtn" data-act="bd.rec">● Record</button><span id="bdRecState" class="muted" style="font-size:12px">not recording</span></div><div id="bdRecOut" style="margin-top:6px"></div></div>
       <div class="full"><label class="fl" for="bdNotes">Notes</label><textarea id="bdNotes" style="min-height:60px" placeholder="What were you doing? Anything else?"></textarea></div></div>
     <p style="font-size:12px;color:var(--ink3);margin:0">GPS attaches automatically if allowed. Works offline — the report queues and sends when you're back in coverage.</p></div>
     <div class="sfoot"><button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="bd.submit">Send report</button></div>`);
   $('#bdChips').addEventListener('click',e=>{const b=e.target.closest('.chip');if(b)b.classList.toggle('on')});
 }
-async function submitBreakdown(){const mediaFiles=[...(($('#bdPhotos')||{}).files||[])];const chips=$$('#bdChips .chip.on').map(b=>b.dataset.chip);const sym=$('#bdSym').value.trim()||chips[0]||'Equipment down';
-  const rep={client_id:'bd-'+Date.now()+'-'+uid(),asset_id:$('#bdAsset').value,job_id:$('#bdJob').value||null,symptom:sym,symptoms:chips,codes:$('#bdCodes').value,site_addr:$('#bdAddr').value,crew_affected:+$('#bdCrew').value||2,downtime_est_hours:+$('#bdDown').value||4,can_move:$('#bdMove').checked,transportable:$('#bdTrans').checked,safety_risk:$('#bdRisk').checked,notes:$('#bdNotes').value,photos:[...($('#bdPhotos').files||[])].map(f=>({name:f.name,size:f.size,note:'stored locally — private bucket upload not configured'})),reporter:'Crew lead (demo)',role:'crew_lead'};
+async function submitBreakdown(){const mediaFiles=[...(($('#bdPhotos')||{}).files||[]),...(($('#bdVideo')||{}).files||[]),...(BDREC.file?[BDREC.file]:[])];const chips=$$('#bdChips .chip.on').map(b=>b.dataset.chip);const sym=$('#bdSym').value.trim()||chips[0]||'Equipment down';
+  const rep={client_id:'bd-'+Date.now()+'-'+uid(),asset_id:$('#bdAsset').value,job_id:$('#bdJob').value||null,symptom:sym,symptoms:chips,codes:$('#bdCodes').value,site_addr:$('#bdAddr').value,crew_affected:+$('#bdCrew').value||2,downtime_est_hours:+$('#bdDown').value||4,can_move:$('#bdMove').checked,transportable:$('#bdTrans').checked,safety_risk:$('#bdRisk').checked,notes:$('#bdNotes').value,photos:mediaFiles.map(f=>({name:f.name,size:f.size,type:f.type})),reporter:'Crew lead (demo)',role:'crew_lead'};
   const j=S.jobs.find(x=>x.id===rep.job_id);const l=j&&j.leadId?lead(j.leadId):null;if(l&&l.lat){rep.lat=l.lat;rep.lng=l.lng;if(!rep.site_addr)rep.site_addr=l.addr+', '+l.area}
   try{if(navigator.geolocation&&!rep.lat){await new Promise(res=>{const t=setTimeout(res,3000);navigator.geolocation.getCurrentPosition(p=>{rep.lat=p.coords.latitude;rep.lng=p.coords.longitude;clearTimeout(t);res()},()=>{clearTimeout(t);res()},{timeout:2500})})}}catch(e){}
   closeAll();let r=null;try{r=await api('/breakdowns',rep)}catch(e){const q=outboxGet();q.push(rep);outboxSet(q);toast('No connection — report queued offline ('+q.length+')');renderAll();return}
@@ -1314,7 +1321,7 @@ function renderPricing(){const latest={};FO.rates.forEach(r=>{if(!latest[r.role]
       <div class="panel"><header><h3>Approvals</h3><span class="hint">limits: ${S.settings.approvalTxt||'$1,500 / txn · crew lead $500 · PM $1,500'}</span></header><div class="body">${FO.approvals.slice(0,8).map(a=>`<div class="fact"><span class="pill ${a.status==='approved'?'ok':a.status==='rejected'?'crit':'warn'}">${a.status}</span> <b class="mono">${fmt(a.amount)}</b> ${esc(a.reason||'')}<br><span style="font-size:11.5px;color:var(--ink3)">${esc(a.requested_by||'')} · ${tAgo(a.created_at)}${a.decided_by?' · decided by '+esc(a.decided_by):''}</span></div>`).join('')||'<div class="empty">No approvals yet.</div>'}</div></div></div></div>`;
 }
 Object.assign(A,{
-  'eq.open':id=>assetDrawer(id),'eq.qr':()=>run(async()=>{const c=$('#qrIn').value.trim();if(!c)return;const a=await api('/equipment/qr/'+encodeURIComponent(c));if(a.error){toast(a.error);return}assetDrawer(a.id)},'QR'),
+  'eq.open':id=>assetDrawer(id),'eq.scan':()=>scanQR(),'qr.close':()=>{stopQR();closeAll()},'bd.rec':()=>toggleRec(),'bd.recclear':()=>clearRec(),'eq.qr':()=>run(async()=>{const c=$('#qrIn').value.trim();if(!c)return;const a=await api('/equipment/qr/'+encodeURIComponent(c));if(a.error){toast(a.error);return}assetDrawer(a.id)},'QR'),
   'eq.status':id=>run(async()=>{await api('/equipment/'+id+'/status',{status:$('#eqStatus').value,actor:'Charlie'});toast('Status updated');await loadAssets();assetDrawer(id)},'Status'),
   'bd.new':id=>{if(!FO.assets.length)loadAssets().then(()=>breakdownSheet(id));else breakdownSheet(id)},
   'bd.submit':()=>run(submitBreakdown,'Report'),'bd.sync':()=>run(outboxSync,'Sync'),
@@ -1328,7 +1335,8 @@ Object.assign(A,{
   'rq.status':(id,el)=>run(async()=>{const r=await api('/requirements/'+id,{status:el.value,actor:'Crew lead (demo)'});toast(`${el.value} · readiness ${r.readiness.pct}%`);const j=FO.reqJob;if(j)jobDrawer(j)},'Status'),
   'rq.find':id=>{const [item,cat]=id.split('|');closeAll();SRC.tab=cat==='equipment'?'rentals':'materials';if(cat==='equipment'){SRC.rItem=decodeURIComponent(item).toLowerCase().split(' ')[1]||decodeURIComponent(item)}else SRC.mQ=decodeURIComponent(item).split(' ')[0].replace('#','');show('sourcing');srcLoad(SRC.tab)},
   'rq.ready':id=>run(async()=>{const [jid,state]=id.split('|');if(state!=='green'){const ex=prompt('Not green. Manager exception reason (required):');if(!ex)return;await api('/jobs/'+jid+'/readiness/exception',{reason:ex,actor:'Charlie'});toast('Departure allowed by exception - logged: '+ex)}else toast('Ready to depart — crew notified');await loadNotifs()},'Ready'),
-  'rq.lists':id=>run(async()=>{const r=await api('/jobs/'+id+'/readiness');openSheet(`<header><h3>Lists</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div><div class="fl">Purchase</div>${r.lists.purchase.map(esc).join('<br>')||'—'}</div><div><div class="fl">Rent</div>${r.lists.rental.map(esc).join('<br>')||'—'}</div><div><div class="fl">Still missing</div>${r.lists.missing.map(esc).join('<br>')||'—'}</div></div><div class="sfoot"><button class="btn" data-act="close">Close</button></div>`)},'Lists'),
+  'rq.lists':id=>run(async()=>{const r=await api('/jobs/'+id+'/readiness');openSheet(`<header><h3>Lists</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div><div class="fl">Purchase</div>${r.lists.purchase.map(esc).join('<br>')||'—'}</div><div><div class="fl">Rent</div>${r.lists.rental.map(esc).join('<br>')||'—'}</div><div><div class="fl">Still missing</div>${r.lists.missing.map(esc).join('<br>')||'—'}</div></div><div class="sfoot"><button class="btn primary" data-act="rq.plan" data-id="${id}">Shopping plan</button><button class="btn" data-act="close">Close</button></div>`)},'Lists'),
+  'rq.plan':id=>run(async()=>{toast('Pricing the trip…');const r=await api('/jobs/'+id+'/shopping-plan',{});openSheet(planHTML(r,id))},'Shopping plan'),
   'lr.save':()=>run(async()=>{const reason=$('#lrReason').value.trim();if(!reason){toast('Reason is required');return}await api('/pricing/labor',{role:$('#lrRole').value,wage:$('#lrWage').value||undefined,burden_pct:$('#lrBurden').value||undefined,target_margin_pct:$('#lrMargin').value||undefined,reason,actor:'Ned (admin)'});toast('Rate saved · audited');await loadPricing()},'Rate'),
   'ev.job':(id,el)=>{FO.estJob=el.value;loadPricing()},
   'ev.create':()=>run(async()=>{await api('/jobs/'+FO.estJob+'/estimates',{tier:$('#evTier').value,discount_pct:+$('#evDisc').value||0,labor_display:$('#evLab').value,actor:'Estimator (demo)'});toast('Version created');await loadPricing()},'Estimate'),
@@ -1756,7 +1764,11 @@ API_DOCS.push(['POST','/resources/search','Universal search: internal + vendors 
  ['GET','/jobs/:id/readiness','Readiness state + purchase / rental / missing lists',null],
  ['GET','/vendors','Vendor directory with open-now and performance from Scag\'s own history',null],
  ['GET','/pricing/market','BLS OEWS benchmarks vs current wages — recommendations only, never auto-applied',null],
- ['GET','/rentals/due','Rentals due back within 24 h (creates return-due notifications)',null]);
+ ['GET','/rentals/due','Rentals due back within 24 h (creates return-due notifications)',null],
+ ['POST','/jobs/:id/shopping-plan','One-stop / lowest-cost / fastest plans for everything still missing, costed with crew time',null],
+ ['GET','/notifications/escalate','Release what quiet hours held; climb unacknowledged criticals (idempotent)',null],
+ ['GET','/notifications/routing','What a given notification kind would do right now, and why',null],
+ ['POST','/notifications/:id/ack','Acknowledge a critical notice so it stops escalating',null]);
 
 /* ---- universal search ---- */
 async function doSearch(q){if(!q)return;RS.last={loading:true,q};searchSheet();
@@ -1805,9 +1817,111 @@ async function rentalAct(id,a){let body={};if(a==='confirm'){const c=prompt('Con
   await api('/rentals/'+id+'/'+a,body);await loadSourcingSide();await loadNotifs();if(S.ui.sec==='sourcing')renderSourcing()}
 
 /* ---- breakdown media (private bucket, signed URLs) ---- */
+/* Video and audio are not resizable in the browser the way an image is, so they are passed through with the
+   server's own 8 MB per-file cap enforced here too - a file that will be silently dropped server-side is
+   refused loudly in front of the person holding the phone instead. */
+const MEDIA_CAP=8*1024*1024;
+function readAsData(file){return new Promise(res=>{const r=new FileReader();r.onload=()=>res({name:file.name||('clip-'+Date.now()),type:file.type,data:r.result});r.onerror=()=>res(null);r.readAsDataURL(file)})}
+async function prepMedia(file){if(/^image\//.test(file.type))return shrink(file);
+  if(!/^(video|audio)\//.test(file.type)){toast('Unsupported file type: '+(file.type||'unknown'));return null}
+  if(file.size>MEDIA_CAP){toast(`${file.name||'Clip'} is ${(file.size/1048576).toFixed(1)} MB - over the 8 MB limit. Record a shorter clip.`);return null}
+  return readAsData(file)}
 function shrink(file){return new Promise(res=>{if(!/^image\//.test(file.type))return res(null);const img=new Image();const u=URL.createObjectURL(file);img.onload=()=>{const s=Math.min(1,1280/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);res({name:file.name.replace(/\.[^.]+$/,'')+'.jpg',type:'image/jpeg',data:c.toDataURL('image/jpeg',.82)})};img.onerror=()=>res(null);img.src=u})}
-async function uploadMedia(bdId,files){const out=[];for(const f of [...files].slice(0,8)){const s=await shrink(f);if(s)out.push(s)}if(!out.length)return;try{const r=await api('/breakdowns/'+bdId+'/media',{files:out});toast(`${r.saved.filter(x=>x.path).length} photo(s) stored privately`)}catch(e){toast('Photos not uploaded: '+e.message)}}
-async function mediaStrip(bdId){try{const m=await api('/breakdowns/'+bdId+'/media');const el=$('#bdMedia');if(!el)return;el.innerHTML=m.length?`<h4>Photos · private bucket, 1-hour signed links</h4><div style="display:flex;gap:6px;flex-wrap:wrap">${m.map(x=>x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(x.url)}" alt="${esc(x.name)}" style="width:96px;height:72px;object-fit:cover;border:1px solid var(--line);border-radius:4px"></a>`:'').join('')}</div>`:''}catch(e){}}
+async function uploadMedia(bdId,files){const out=[];for(const f of [...files].slice(0,8)){const m=await prepMedia(f);if(m)out.push(m)}if(!out.length)return;try{const r=await api('/breakdowns/'+bdId+'/media',{files:out});const ok=r.saved.filter(x=>x.path);const kinds=k=>ok.filter(x=>String(x.type||'').startsWith(k)).length;const bits=[[kinds('image'),'photo'],[kinds('video'),'video'],[kinds('audio'),'voice note']].filter(b=>b[0]).map(b=>`${b[0]} ${b[1]}${b[0]>1?'s':''}`);toast((bits.join(' · ')||'0 files')+' stored privately');if(ok.length<out.length)toast(`${out.length-ok.length} file(s) did not store - check the breakdown record`)}catch(e){toast('Media not uploaded: '+e.message)}}
+async function mediaStrip(bdId){try{const m=await api('/breakdowns/'+bdId+'/media');const el=$('#bdMedia');if(!el)return;el.innerHTML=m.length?`<h4>Media · private bucket, 1-hour signed links</h4><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">${m.map(x=>{if(!x.url)return '';const t=String(x.type||'');if(t.startsWith('video'))return `<video src="${esc(x.url)}" controls preload="metadata" style="width:160px;border:1px solid var(--line);border-radius:4px"></video>`;if(t.startsWith('audio'))return `<div style="min-width:200px"><audio src="${esc(x.url)}" controls style="width:200px"></audio><div class="muted" style="font-size:11px">${esc(x.name)}</div></div>`;return `<a href="${esc(x.url)}" target="_blank" rel="noopener"><img src="${esc(x.url)}" alt="${esc(x.name)}" style="width:96px;height:72px;object-fit:cover;border:1px solid var(--line);border-radius:4px"></a>`}).join('')}</div>`:''}catch(e){}}
+
+/* ---- shopping plans: one stop vs cheapest vs fastest ---- */
+/* Three plans, always, with what each costs in materials AND in crew time. The recommendation is named and its
+   reasoning is on the card - the crew lead can disagree with it and pick another, which is the point. */
+const planConf=c=>c==='verified'?'<span class="pill ok">verified stock</span>':c==='posted'?'<span class="pill new">posted stock</span>':'<span class="pill warn">call to confirm</span>';
+function planHTML(r,jobId){
+  if(!r.plans||!r.plans.length)return `<header><h3>Shopping plan</h3><button class="x" data-act="close" aria-label="Close">✕</button></header><div class="sbody"><div class="empty">${esc(r.note||'No supplier could price any missing item. Call, or mark substitutes.')}</div>${(r.unsourced||[]).length?`<div><div class="fl">Nobody could price</div>${r.unsourced.map(esc).join('<br>')}</div>`:''}</div><div class="sfoot"><button class="btn" data-act="close">Close</button></div>`;
+  const card=p=>`<div class="fact" style="border:1px solid ${p.id===r.recommended?'var(--accent,#2b6)':'var(--line)'};border-radius:6px;padding:10px;margin-bottom:10px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+      <strong>${esc(p.label)}</strong>
+      ${p.id===r.recommended?'<span class="pill ok">recommended</span>':''}
+    </div>
+    <div style="font-size:20px;margin:4px 0">$${p.total_landed.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} <span class="muted" style="font-size:12px">landed</span></div>
+    <div class="muted" style="font-size:12px">$${p.goods.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})} materials + $${p.crew_delay_cost.toLocaleString('en-US')} crew time (${p.drive_minutes} min driving + ${p.stop_overhead_minutes} min at ${p.stops.length} stop${p.stops.length>1?'s':''})</div>
+    <div style="margin:6px 0">${planConf(p.confidence)}${p.partial?` <span class="pill warn">covers ${p.covered} of ${p.total_items}</span>`:''}</div>
+    <div style="font-size:12px;margin:6px 0">${esc(p.tradeoff)}</div>
+    ${p.stops.map(st=>`<div style="border-top:1px solid var(--line);padding-top:6px;margin-top:6px">
+      <div style="display:flex;justify-content:space-between"><strong style="font-size:13px">${esc(st.vendor_name)}</strong><span class="muted" style="font-size:12px">${st.drive_minutes} min · ${st.drive_mi} mi</span></div>
+      ${st.drive_caveat?`<div class="pill warn" style="font-size:11px;margin:3px 0">${esc(st.drive_caveat)}</div>`:''}
+      ${st.drive_status!=='LIVE_VERIFIED'?'<div class="muted" style="font-size:11px">drive time estimated, not routed</div>':''}
+      <div style="font-size:12px">${st.items.map(i=>`${esc(i.item)} ×${i.qty} — ${i.extended==null?'—':'$'+i.extended.toFixed(2)}${i.substitute?' <span class="pill warn">substitute</span>':''}`).join('<br>')}</div>
+      ${st.phone?`<a class="btn sm" href="tel:${esc(st.phone)}">Call ${esc(st.phone)}</a>`:''}
+      ${st.url?`<a class="btn sm ghost" href="${esc(st.url)}" target="_blank" rel="noopener">Open ›</a>`:''}
+    </div>`).join('')}
+    <div class="muted" style="font-size:11px;margin-top:6px">${esc(p.why)}</div>
+  </div>`;
+  return `<header><h3>Shopping plan${r.job?' · '+esc(r.job.name):''}</h3><button class="x" data-act="close" aria-label="Close">✕</button></header>
+    <div class="sbody">${r.plans.map(card).join('')}
+    ${(r.unsourced||[]).length?`<div class="fact"><div class="fl">Nobody could price these</div>${r.unsourced.map(esc).join('<br>')}<div class="muted" style="font-size:11px;margin-top:4px">Call for them, or mark an approved substitute on the requirement.</div></div>`:''}
+    <div class="muted" style="font-size:11px">${esc(r.note||'')} Considered ${r.offers_considered||0} supplier offer(s).</div></div>
+    <div class="sfoot"><button class="btn" data-act="rq.plan" data-id="${jobId}">Re-price</button><button class="btn" data-act="close">Close</button></div>`;
+}
+
+/* ---- voice note (MediaRecorder) ---- */
+/* Typing a symptom on a phone with wet gloves is why breakdown notes were one word. Holding a button is not. */
+const BDREC={rec:null,chunks:[],file:null,stream:null};
+async function toggleRec(){
+  const st=$('#bdRecState'),btn=$('#bdRecBtn');
+  if(BDREC.rec&&BDREC.rec.state==='recording'){BDREC.rec.stop();return}
+  if(!navigator.mediaDevices||!window.MediaRecorder){toast('This browser cannot record audio — type the note or attach a voice memo file');return}
+  try{
+    BDREC.stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const mime=['audio/webm','audio/mp4','audio/ogg'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+    BDREC.chunks=[];BDREC.rec=new MediaRecorder(BDREC.stream,mime?{mimeType:mime}:undefined);
+    BDREC.rec.ondataavailable=e=>{if(e.data&&e.data.size)BDREC.chunks.push(e.data)};
+    BDREC.rec.onstop=()=>{
+      (BDREC.stream.getTracks()||[]).forEach(t=>t.stop());
+      const type=BDREC.rec.mimeType||mime||'audio/webm';
+      const blob=new Blob(BDREC.chunks,{type});
+      const ext=type.includes('mp4')?'m4a':type.includes('ogg')?'ogg':'webm';
+      BDREC.file=new File([blob],`voice-note-${Date.now()}.${ext}`,{type});
+      btn.textContent='● Record';btn.classList.remove('primary');
+      st.textContent=`${(blob.size/1024).toFixed(0)} KB attached`;
+      $('#bdRecOut').innerHTML=`<audio controls src="${URL.createObjectURL(blob)}" style="width:220px"></audio> <button type="button" class="btn sm" data-act="bd.recclear">Discard</button>`;
+    };
+    /* A note long enough to be over the 8 MB cap is a note nobody will listen to; stop at 2 minutes. */
+    BDREC.rec.start();setTimeout(()=>{if(BDREC.rec&&BDREC.rec.state==='recording'){BDREC.rec.stop();toast('Voice note capped at 2 minutes')}},120000);
+    btn.textContent='■ Stop';btn.classList.add('primary');st.textContent='recording…';
+  }catch(e){toast('Microphone unavailable: '+e.message)}
+}
+function clearRec(){BDREC.file=null;$('#bdRecOut').innerHTML='';const st=$('#bdRecState');if(st)st.textContent='not recording'}
+
+/* ---- camera QR scan ---- */
+/* BarcodeDetector where the browser has it (Chrome/Android, the crew's phones). Everywhere else the typed
+   field that has always been there still works, and the UI says which one you are getting rather than
+   showing a camera button that silently does nothing. */
+const QR={stream:null,raf:0};
+async function scanQR(){
+  if(!('BarcodeDetector' in window)){toast('This browser has no barcode reader — type the code instead');$('#qrIn')&&$('#qrIn').focus();return}
+  let formats=[];try{formats=await window.BarcodeDetector.getSupportedFormats()}catch(e){}
+  if(formats.length&&!formats.includes('qr_code')){toast('This browser reads barcodes but not QR — type the code instead');return}
+  openSheet(`<header><h3>Scan asset QR</h3><button class="x" data-act="qr.close" aria-label="Close">✕</button></header>
+    <div style="padding:12px"><video id="qrVid" playsinline muted style="width:100%;max-height:60vh;background:#000;border-radius:6px"></video>
+    <p class="muted" style="font-size:12px;margin-top:8px">Point at the sticker on the machine. Nothing is uploaded — the code is read on the phone.</p></div>`);
+  try{
+    QR.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    const v=$('#qrVid');v.srcObject=QR.stream;await v.play();
+    const det=new window.BarcodeDetector({formats:['qr_code']});
+    const tick=async()=>{
+      if(!QR.stream)return;
+      try{const codes=await det.detect(v);
+        if(codes&&codes.length){const code=(codes[0].rawValue||'').trim();
+          if(code){stopQR();closeAll();
+            try{const a=await api('/equipment/qr/'+encodeURIComponent(code));if(a.error){toast(a.error+' — code read as "'+code+'"');return}assetDrawer(a.id)}
+            catch(e){toast('Scan read "'+code+'" but lookup failed: '+e.message)}
+            return}}
+      }catch(e){}
+      QR.raf=requestAnimationFrame(tick);
+    };
+    QR.raf=requestAnimationFrame(tick);
+  }catch(e){stopQR();toast('Camera unavailable: '+e.message)}
+}
+function stopQR(){if(QR.raf)cancelAnimationFrame(QR.raf);QR.raf=0;if(QR.stream){QR.stream.getTracks().forEach(t=>t.stop());QR.stream=null}}
 
 /* ---- push ---- */
 async function enablePush(){if(!('serviceWorker' in navigator)||!('PushManager' in window)){toast('Push not supported in this browser');return}
@@ -1834,7 +1948,7 @@ Object.assign(A,{
 R.vendors=()=>{renderVendors();loadVendors()};TITLES.vendors=['Vendors',()=>'Repair, rental, parts and transport providers — what they can book, how they have performed'];
 R.pricing=()=>{renderPricing();loadPricing().then(loadMarket)};
 $('#gq')&&$('#gq').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();A['rs.search']()}});
-if(LIVE()){api('/rentals/due').catch(()=>{})}
+if(LIVE()){api('/rentals/due').catch(()=>{});api('/notifications/escalate').catch(()=>{})}
 window.ssShow=sec=>{show(sec)};
 
 /* ---- bid playbook: how to beat each competitor's bid (shown on Competitive edge) ---- */
