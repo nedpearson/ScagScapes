@@ -130,3 +130,119 @@ Deno.test("price check: a figure quoted from the context is not an invented pric
   if (priceClean(f, { recommendation: "Repair runs $420.", reasoning: "" }))
     throw new Error("the recommendation must stay price-free even for a grounded figure");
 });
+
+// ---------- v1.6: drive time, shopping plans, notification routing ----------
+const { estimateLeg, mphFor, ROAD_FACTOR } = await import("./routing.ts");
+const { buildPlans } = await import("./plan.ts");
+const { route: notifyRoute, inQuietHours, deferUntil, DEFAULT_PREFS } = await import("./notify.ts");
+
+Deno.test("estimateLeg: a fallback is never dressed up as a route", () => {
+  const l = estimateLeg(30.4515, -91.1871, 30.3860, -91.0407);   // yard → Home Depot Siegen
+  assertEquals(l.status, STATUS.EST);
+  assert(/no route was computed/i.test(l.method), "the method must say plainly that nothing was routed");
+  assert(l.distance_mi > l.crow_mi, "road distance must exceed crow distance");
+  assertAlmostEquals(l.distance_mi / l.crow_mi, ROAD_FACTOR, 0.06);
+  assert(l.minutes > 0);
+});
+
+Deno.test("estimateLeg: a river crossing carries its caveat, because 1.23x is wrong there", () => {
+  // Port Allen sits on the west bank. Measured 2.49-2.65x, so the estimate is a floor and must say so.
+  const west = estimateLeg(30.4515, -91.1871, 30.4505, -91.2101);
+  assert(west.caveat && /Mississippi/i.test(west.caveat), "a west-bank leg must be flagged");
+  const east = estimateLeg(30.4515, -91.1871, 30.3860, -91.0407);
+  assertEquals(east.caveat, undefined, "an east-bank leg must not be flagged");
+});
+
+Deno.test("mphFor: short trips are slower than highway runs (measured bands)", () => {
+  assert(mphFor(2) < mphFor(8), "surface streets are slower than the mid band");
+  assert(mphFor(8) < mphFor(20), "the long band uses the interstate");
+});
+
+const leg = (m: number) => ({ minutes: m, miles: Math.round(m * 0.6), status: STATUS.LIVE });
+const offer = (item: string, vendor: string, price: number, status: string = STATUS.POSTED, avail: number | null = null) =>
+  ({ item, vendor_id: vendor, vendor_name: vendor, unit_price: price, qty_needed: 1, extended: price, available: avail, availability_status: status, price_status: status });
+
+Deno.test("buildPlans: a cheaper basket at a second store can lose to one stop once crew time is priced", () => {
+  // near (5 min) has both items at a small premium; far (40 min) is $30 cheaper on one of them.
+  const offers = [offer("pipe", "near", 200), offer("gravel", "near", 300), offer("gravel", "far", 270)];
+  const legs = new Map([["near", leg(5)], ["far", leg(40)]]);
+  const r = buildPlans(["pipe", "gravel"], offers as any, { crew_cost_per_hour: 135, stop_minutes: 18, legs });
+  const one = r.plans.find((p) => p.id === "ONE_STOP")!, low = r.plans.find((p) => p.id === "LOWEST");
+  assertEquals(one.stops.length, 1);
+  assertEquals(one.goods, 500);
+  if (low) { assert(low.goods < one.goods, "LOWEST must buy cheaper goods"); assert(low.total_landed > one.total_landed, "but lose on landed cost once the drive is paid for"); }
+  assertEquals(r.recommended, "ONE_STOP");
+  assert(/landed/i.test(one.tradeoff));
+});
+
+Deno.test("buildPlans: an item nobody could price is reported, never quietly dropped", () => {
+  const offers = [offer("pipe", "near", 200)];
+  const r = buildPlans(["pipe", "unobtainium basin"], offers as any, { crew_cost_per_hour: 135, legs: new Map([["near", leg(5)]]) });
+  assertEquals(r.unsourced, ["unobtainium basin"]);
+  assert(r.plans.every((p) => p.partial), "a plan that cannot cover the list must say so");
+  assert(r.plans.every((p) => p.covered < p.total_items));
+  assert(/no supplier could price/i.test(r.note));
+});
+
+Deno.test("buildPlans: a stock count below what the job needs is not an offer", () => {
+  const offers = [offer("pipe", "near", 200, STATUS.LIVE, 0), offer("pipe", "far", 260, STATUS.LIVE, 10)];
+  offers[0].qty_needed = 5; offers[1].qty_needed = 5;
+  const legs = new Map([["near", leg(5)], ["far", leg(40)]]);
+  const r = buildPlans(["pipe"], offers as any, { crew_cost_per_hour: 135, legs });
+  assert(r.plans.every((p) => p.stops.every((s) => s.vendor_name !== "near")), "a store with 0 on hand must not be planned into the trip");
+});
+
+Deno.test("buildPlans: the weakest link sets the plan's confidence", () => {
+  const offers = [offer("pipe", "near", 200, STATUS.LIVE), offer("gravel", "near", 300, STATUS.CALL)];
+  const r = buildPlans(["pipe", "gravel"], offers as any, { crew_cost_per_hour: 135, legs: new Map([["near", leg(5)]]) });
+  assertEquals(r.plans[0].confidence, "call", "one call-to-confirm line makes the whole trip call-to-confirm");
+});
+
+Deno.test("quiet hours: a window that crosses midnight is handled, and only critical breaks it", () => {
+  const p = DEFAULT_PREFS;                                   // 21:00-06:00, tz -5
+  const at2am = new Date("2026-09-22T07:00:00Z");            // 02:00 local
+  const at2pm = new Date("2026-09-22T19:00:00Z");            // 14:00 local
+  assert(inQuietHours(at2am, p), "02:00 local is inside 21:00-06:00");
+  assert(!inQuietHours(at2pm, p), "14:00 local is not");
+
+  const rental = notifyRoute("rental.due", at2am, {});
+  assert(rental.deferred, "a low-urgency reminder must not wake anyone at 2am");
+  assertEquals(rental.channels, ["in_app"]);
+  assert(/quiet hours/i.test(rental.why));
+
+  const safety = notifyRoute("breakdown.safety", at2am, {});
+  assert(!safety.deferred, "a machine down with a safety risk must break quiet hours");
+  assert(safety.channels.includes("push"));
+  assert(safety.needs_ack, "a critical notice must require acknowledgement");
+});
+
+Deno.test("quiet hours: a deferred notice surfaces at the next quiet_end, not 24h later", () => {
+  const at2am = new Date("2026-09-22T07:00:00Z");            // 02:00 local
+  const until = deferUntil(at2am, DEFAULT_PREFS);
+  const gapH = (until.getTime() - at2am.getTime()) / 3600_000;
+  assert(gapH > 0 && gapH <= 5, `expected release within 4h, got ${gapH}h`);
+  const at10pm = new Date("2026-09-23T03:00:00Z");           // 22:00 local, before midnight
+  const g2 = (deferUntil(at10pm, DEFAULT_PREFS).getTime() - at10pm.getTime()) / 3600_000;
+  assert(g2 > 0 && g2 <= 9, `expected release next morning, got ${g2}h`);
+});
+
+Deno.test("escalation: an approval request is critical, acknowledgeable, and climbs to a named role", () => {
+  const r = notifyRoute("approval.requested", new Date("2026-09-22T19:00:00Z"), {});
+  assertEquals(r.urgency, "critical");
+  assert(r.needs_ack);
+  assert(r.escalate_after_min && r.escalate_after_min > 0, "it must have a deadline to be escalated against");
+  assertEquals(r.escalate_to, "admin");
+});
+
+Deno.test("escalation can be switched off per tenant without touching code", () => {
+  const off = notifyRoute("approval.requested", new Date("2026-09-22T19:00:00Z"), { notifications: { escalation_enabled: false } });
+  assertEquals(off.escalate_after_min, null);
+});
+
+Deno.test("scoreOptions: a vendor that has let Scag down ranks below an identical one that has not", () => {
+  // identical on every axis except the reliability now sourced from ss_provider_feedback
+  const base = { ttr_hours: 4, total: 800, distance_mi: 9, confidence: .6, cancel_flex: .7, fit: .9 };
+  const r = scoreOptions([{ ...base, label: "cancelled on us twice", reliability: .52 }, { ...base, label: "never missed", reliability: .93 }], {});
+  assertEquals(r[0].label, "never missed");
+  assert(r[0].score.inputs.reliability === .93, "the figure must be visible in the explanation, not hidden in the weight");
+});

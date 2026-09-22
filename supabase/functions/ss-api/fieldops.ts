@@ -4,10 +4,18 @@
 import { sb, json, fmt, event, dLabel, iso, addD, price, TYPES, STATUS, pushAll } from "./core.ts";
 export { STATUS };
 import { miles, hdRental, rentalTotal } from "./sourcing.ts";
+import { driveTimes } from "./routing.ts";
+import { reliabilityMap } from "./resources.ts";
+import { notify as route_notify, runEscalation, route as notifyRoute, prefsFor } from "./notify.ts";
+import { buildPlans, type Offer } from "./plan.ts";
+import { universalSearch } from "./resources.ts";
+import { estimateLeg } from "./routing.ts";
 
 const SHOP = { lat: 30.4515, lng: -91.1871 };
 async function audit(t: string, actor: string, action: string, ref_type: string, ref_id: string | null, before: any, after: any) { await sb.from("ss_audit").insert({ tenant_id: t, actor, action, ref_type, ref_id, before, after }); }
-async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }) { await sb.from("ss_notifications").insert({ tenant_id: t, kind, title, body, ref_type: ref?.type, ref_id: ref?.id }); pushAll(t, title, body, ref).catch(() => {}); }
+// Routed through notify.ts so urgency, quiet hours, acknowledgement and escalation apply to every notice
+// raised here. `settings` is threaded in where the caller has it; without it the tenant defaults apply.
+async function notify(t: string, kind: string, title: string, body: string, ref?: { type: string; id: string }, settings?: any) { await route_notify(t, kind, title, body, ref, settings); }
 const num = (v: any, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 
 // ---------- rule-assisted diagnosis (NOT vision AI — labeled as such in the output) ----------
@@ -58,24 +66,38 @@ function method(v: any, live?: any) { if (live && live.available > 0) return "RE
 async function buildOptions(t: string, b: any, asset: any, settings: any) {
   const lat = b.lat || SHOP.lat, lng = b.lng || SHOP.lng; const crewCost = num(settings.crew_cost_per_hour, 135); const dt = (h: number) => Math.round(h * crewCost);
   const { data: vendors } = await sb.from("ss_vendors").select("*").in("kind", ["hose", "mobile_repair", "repair", "dealer", "tire", "transport", "rental"]);
-  const V = (vendors ?? []).map((v: any) => ({ ...v, distance: v.lat ? miles(lat, lng, v.lat, v.lng) : 20 }));
+  // Drive time on the real road network, and reliability from Scag's own record with each vendor rather than a
+  // constant per option kind. Both degrade honestly: an unroutable vendor keeps a calibrated straight-line
+  // estimate (flagged ESTIMATED), and a vendor with fewer than three recorded events keeps the neutral .7.
+  const [legs, rel] = await Promise.all([
+    driveTimes({ lat, lng }, (vendors ?? []).map((v: any) => ({ lat: v.lat ?? null, lng: v.lng ?? null }))),
+    reliabilityMap(t),
+  ]);
+  const V = (vendors ?? []).map((v: any, i: number) => {
+    const leg = legs[i];
+    const routed = leg && leg.distance_mi > 0;
+    return { ...v, leg,
+      distance: routed ? leg.distance_mi : (v.lat ? miles(lat, lng, v.lat, v.lng) : 20),
+      drive_hours: routed ? leg.minutes / 60 : (v.lat ? miles(lat, lng, v.lat, v.lng) / 31 : 0.65),
+      reliability: rel.get(v.id) ?? .7 };
+  });
   const hyd = /hydraulic|hose|leak/i.test(b.symptom + " " + (b.symptoms || []).join(" ")); const tire = /tire|flat/i.test(b.symptom); const cat = (asset?.category || "").toLowerCase();
   const opts: any[] = [];
   // 1. internal spare
   const { data: spares } = asset ? await sb.from("ss_equipment_assets").select("*").eq("tenant_id", t).eq("category", asset.category).neq("id", asset.id).eq("status", "Available") : { data: [] };
   for (const s of spares ?? []) opts.push({ kind: "internal_spare", label: `Use ${s.asset_no} · ${s.make} ${s.model} (in yard)`, vendor_name: "Scag Scapes yard", ttr_hours: 1.5, distance_mi: miles(lat, lng, SHOP.lat, SHOP.lng), open_now: true, cost: { direct: 0, transport: 60, fees: 0 }, total: 60 + dt(1.5), downtime_cost: dt(1.5), availability_status: STATUS.LIVE, price_status: STATUS.LIVE, confidence: .95, reliability: .95, cancel_flex: 1, fit: 1, method: "RESERVE_ONLINE", evidence: { source: "ss_equipment_assets", checked_at: new Date().toISOString(), note: "internal record — allocate and go" } });
   // 2. mobile hose / mobile mechanic
-  for (const v of V.filter((v: any) => (hyd && v.kind === "hose") || v.kind === "mobile_repair" || (tire && v.kind === "tire")).slice(0, 4)) { const eta = v.meta?.after_hours ? 1 : 2.5, repair = hyd ? 1.5 : 3; const direct = hyd ? 385 : 150 + 125 * repair + 220; opts.push({ kind: v.kind === "hose" ? "mobile_hose" : "mobile_mechanic", label: `${v.kind === "hose" ? "Mobile hose service" : "Mobile mechanic"} · ${v.name}`, vendor_id: v.id, vendor_name: v.name, phone: v.phone, url: v.meta?.url, ttr_hours: eta + repair, distance_mi: v.distance, open_now: true, after_hours: !!v.meta?.after_hours, cost: { direct, service_call: hyd ? 95 : 150, labor_rate: 125, parts_est: hyd ? 180 : 220, fees: 0 }, total: direct + dt(eta + repair), downtime_cost: dt(eta + repair), availability_status: STATUS.CALL, price_status: STATUS.EST, confidence: v.meta?.after_hours ? .6 : .5, reliability: .75, cancel_flex: .7, fit: .95, method: method(v), evidence: { source: v.meta?.url, checked_at: v.meta?.verified, note: "hours/services from provider page; price is a planning estimate — confirm on the call" } }); }
+  for (const v of V.filter((v: any) => (hyd && v.kind === "hose") || v.kind === "mobile_repair" || (tire && v.kind === "tire")).slice(0, 4)) { const eta = Math.round(((v.meta?.after_hours ? 0.5 : 1.75) + v.drive_hours) * 10) / 10, repair = hyd ? 1.5 : 3; const direct = hyd ? 385 : 150 + 125 * repair + 220; opts.push({ kind: v.kind === "hose" ? "mobile_hose" : "mobile_mechanic", label: `${v.kind === "hose" ? "Mobile hose service" : "Mobile mechanic"} · ${v.name}`, vendor_id: v.id, vendor_name: v.name, phone: v.phone, url: v.meta?.url, ttr_hours: eta + repair, distance_mi: v.distance, open_now: true, after_hours: !!v.meta?.after_hours, cost: { direct, service_call: hyd ? 95 : 150, labor_rate: 125, parts_est: hyd ? 180 : 220, fees: 0 }, total: direct + dt(eta + repair), downtime_cost: dt(eta + repair), availability_status: STATUS.CALL, price_status: STATUS.EST, confidence: v.meta?.after_hours ? .6 : .5, reliability: v.reliability, cancel_flex: .7, fit: .95, method: method(v), evidence: { source: v.meta?.url, checked_at: v.meta?.verified, distance: { miles: v.distance, minutes: v.leg?.minutes ?? null, status: v.leg?.status, source: v.leg?.source, caveat: v.leg?.caveat }, note: "hours/services from provider page; price is a planning estimate — confirm on the call" } }); }
   // 3. dealer service (brand match first)
   const brand = (asset?.make || "").toLowerCase();
-  for (const v of V.filter((v: any) => v.kind === "dealer").sort((a: any, b2: any) => ((b2.meta?.brands || []).some((x: string) => x.toLowerCase() === brand) ? 1 : 0) - ((a.meta?.brands || []).some((x: string) => x.toLowerCase() === brand) ? 1 : 0) || a.distance - b2.distance).slice(0, 2)) { const match = (v.meta?.brands || []).some((x: string) => x.toLowerCase() === brand); const tow = b.can_move === false ? 350 : 0; const ttr = 30 + (tow ? 4 : 2); opts.push({ kind: "dealer", label: `Dealer service · ${v.name}${match ? " (brand match)" : ""}`, vendor_id: v.id, vendor_name: v.name, phone: v.phone, url: v.meta?.booking_url || v.meta?.url, ttr_hours: ttr, distance_mi: v.distance, open_now: true, after_hours: false, cost: { direct: 165 + 140 * 3 + 260, diagnostic: 165, labor_rate: 140, parts_est: 260, transport: tow }, total: 165 + 420 + 260 + tow + dt(8), downtime_cost: dt(8), availability_status: STATUS.CALL, price_status: STATUS.EST, confidence: .55, reliability: .85, cancel_flex: .6, fit: match ? .9 : .7, method: method(v), warranty: asset?.warranty_until && asset.warranty_until >= iso(new Date()) ? "In warranty — dealer path may be covered" : null, evidence: { source: v.meta?.url, checked_at: v.meta?.verified, note: v.meta?.book === "online" ? "online service request form verified" : "phone/form only" } }); }
+  for (const v of V.filter((v: any) => v.kind === "dealer").sort((a: any, b2: any) => ((b2.meta?.brands || []).some((x: string) => x.toLowerCase() === brand) ? 1 : 0) - ((a.meta?.brands || []).some((x: string) => x.toLowerCase() === brand) ? 1 : 0) || a.distance - b2.distance).slice(0, 2)) { const match = (v.meta?.brands || []).some((x: string) => x.toLowerCase() === brand); const tow = b.can_move === false ? 350 : 0; const ttr = 30 + (tow ? 4 : 2); opts.push({ kind: "dealer", label: `Dealer service · ${v.name}${match ? " (brand match)" : ""}`, vendor_id: v.id, vendor_name: v.name, phone: v.phone, url: v.meta?.booking_url || v.meta?.url, ttr_hours: ttr, distance_mi: v.distance, open_now: true, after_hours: false, cost: { direct: 165 + 140 * 3 + 260, diagnostic: 165, labor_rate: 140, parts_est: 260, transport: tow }, total: 165 + 420 + 260 + tow + dt(8), downtime_cost: dt(8), availability_status: STATUS.CALL, price_status: STATUS.EST, confidence: .55, reliability: v.reliability, cancel_flex: .6, fit: match ? .9 : .7, method: method(v), warranty: asset?.warranty_until && asset.warranty_until >= iso(new Date()) ? "In warranty — dealer path may be covered" : null, evidence: { source: v.meta?.url, checked_at: v.meta?.verified, note: v.meta?.book === "online" ? "online service request form verified" : "phone/form only" } }); }
   // 4. rental replacement (live HD + chains) — downtime counts only until the rental arrives
   const item = cat.includes("excavator") ? "excavator" : cat.includes("skid") ? "loader" : cat.includes("trencher") ? "trencher" : cat.includes("compactor") ? "compact" : cat.includes("sod") ? "sod" : cat.includes("trailer") ? "trailer" : "";
   if (item) { const days = Math.max(1, Math.ceil(num(b.downtime_est_hours, 8) / 8)); const { data: cards } = await sb.from("ss_rate_cards").select("*"); const cache: Record<string, any> = {};
-    for (const c of (cards ?? []).filter((c: any) => c.category === item || c.item.toLowerCase().includes(item)).slice(0, 6)) { for (const v of V.filter((v: any) => v.kind === "rental" && v.brand === c.brand)) { let live: any = null; if (c.brand === "Home Depot" && c.ext_cat) { const k = c.ext_cat + "/" + c.ext_sub; cache[k] = cache[k] || await hdRental(c.ext_cat, c.ext_sub); live = cache[k][v.ext_id]; if (live && live.available === undefined) live.available = 0; } const rc = live?.day ? live : c; const tot = rentalTotal(rc, days) ?? 0; const eta = 1 + v.distance / 25; opts.push({ kind: "rental", label: `Rent ${c.item} · ${v.name}`, vendor_id: v.id, vendor_name: v.name, phone: v.phone, url: v.meta?.url, ttr_hours: Math.round(eta * 10) / 10, distance_mi: v.distance, open_now: true, cost: { direct: tot, day: rc.day, week: rc.week, deposit: rc.deposit ?? c.deposit ?? 0, delivery: 0, fees: Math.round(tot * .12) }, total: tot + Math.round(tot * .12) + dt(eta), downtime_cost: dt(eta), availability_status: live?.day ? (live.available > 0 ? STATUS.POSTED : STATUS.NA) : STATUS.CALL, price_status: live?.day ? STATUS.POSTED : (c.verified ? STATUS.POSTED : STATUS.EST), confidence: live?.day ? (live.available > 0 ? .8 : .1) : .45, reliability: c.brand === "Home Depot" ? .8 : .8, cancel_flex: .8, fit: .85, method: method(v, live), available: live?.available ?? null, evidence: { source: c.source_url, checked_at: live?.day ? new Date().toISOString() : c.checked_at, method: live?.day ? "Home Depot rental pricing/inventory endpoint (undocumented)" : "rate card", store: v.ext_id } }); } } }
+    for (const c of (cards ?? []).filter((c: any) => c.category === item || c.item.toLowerCase().includes(item)).slice(0, 6)) { for (const v of V.filter((v: any) => v.kind === "rental" && v.brand === c.brand)) { let live: any = null; if (c.brand === "Home Depot" && c.ext_cat) { const k = c.ext_cat + "/" + c.ext_sub; cache[k] = cache[k] || await hdRental(c.ext_cat, c.ext_sub); live = cache[k][v.ext_id]; if (live && live.available === undefined) live.available = 0; } const rc = live?.day ? live : c; const tot = rentalTotal(rc, days) ?? 0; const eta = Math.round((1 + v.drive_hours) * 10) / 10; opts.push({ kind: "rental", label: `Rent ${c.item} · ${v.name}`, vendor_id: v.id, vendor_name: v.name, phone: v.phone, url: v.meta?.url, ttr_hours: Math.round(eta * 10) / 10, distance_mi: v.distance, open_now: true, cost: { direct: tot, day: rc.day, week: rc.week, deposit: rc.deposit ?? c.deposit ?? 0, delivery: 0, fees: Math.round(tot * .12) }, total: tot + Math.round(tot * .12) + dt(eta), downtime_cost: dt(eta), availability_status: live?.day ? (live.available > 0 ? STATUS.POSTED : STATUS.NA) : STATUS.CALL, price_status: live?.day ? STATUS.POSTED : (c.verified ? STATUS.POSTED : STATUS.EST), confidence: live?.day ? (live.available > 0 ? .8 : .1) : .45, reliability: v.reliability, cancel_flex: .8, fit: .85, method: method(v, live), available: live?.available ?? null, evidence: { source: c.source_url, checked_at: live?.day ? new Date().toISOString() : c.checked_at, method: live?.day ? "Home Depot rental pricing/inventory endpoint (undocumented)" : "rate card", store: v.ext_id } }); } } }
   // 5. transport to shop (pairs with dealer) and 6. reschedule
   const tow = V.filter((v: any) => v.kind === "transport").sort((a: any, b2: any) => a.distance - b2.distance)[0];
-  if (tow && b.can_move === false) opts.push({ kind: "transport", label: `Haul to shop · ${tow.name}`, vendor_id: tow.id, vendor_name: tow.name, phone: tow.phone, url: tow.meta?.url, ttr_hours: 26, distance_mi: tow.distance, open_now: true, after_hours: !!tow.meta?.after_hours, cost: { direct: 350, transport: 350 }, total: 350 + dt(8), downtime_cost: dt(8), availability_status: STATUS.CALL, price_status: STATUS.EST, confidence: .5, reliability: .75, cancel_flex: .7, fit: .5, method: "CALL_NOW", evidence: { source: tow.meta?.url, checked_at: tow.meta?.verified } });
+  if (tow && b.can_move === false) opts.push({ kind: "transport", label: `Haul to shop · ${tow.name}`, vendor_id: tow.id, vendor_name: tow.name, phone: tow.phone, url: tow.meta?.url, ttr_hours: 26, distance_mi: tow.distance, open_now: true, after_hours: !!tow.meta?.after_hours, cost: { direct: 350, transport: 350 }, total: 350 + dt(8), downtime_cost: dt(8), availability_status: STATUS.CALL, price_status: STATUS.EST, confidence: .5, reliability: tow.reliability, cancel_flex: .7, fit: .5, method: "CALL_NOW", evidence: { source: tow.meta?.url, checked_at: tow.meta?.verified } });
   opts.push({ kind: "reschedule", label: "Redeploy crew to hand work / next job; repair tomorrow", vendor_name: "Internal", ttr_hours: 24, distance_mi: 0, open_now: true, cost: { direct: 0 }, total: dt(num(b.downtime_est_hours, 8)), downtime_cost: dt(num(b.downtime_est_hours, 8)), availability_status: STATUS.LIVE, price_status: STATUS.EST, confidence: .9, reliability: .9, cancel_flex: 1, fit: .3, method: "RESERVE_ONLINE", evidence: { note: "no external dependency; cost is lost crew production" } });
   return scoreOptions(opts, settings.recovery_weights || {});
 }
@@ -175,6 +197,83 @@ export async function fieldops(path: string, req: Request, url: URL, body: any, 
     if (jr[2] === "estimates" && req.method === "GET") { const { data } = await sb.from("ss_estimate_versions").select("*").eq("job_id", job.id).order("version", { ascending: false }); return json(data ?? []); }
     if (jr[2] === "estimates" && req.method === "POST") { const { data: rates } = await sb.from("ss_labor_rates").select("*").eq("tenant_id", t).order("effective", { ascending: false }); const latest: Record<string, any> = {}; for (const r of rates ?? []) if (!latest[r.role]) latest[r.role] = r; const { data: reqs } = await sb.from("ss_job_requirements").select("allocated_asset_id").eq("job_id", job.id).not("allocated_asset_id", "is", null); const ids = (reqs ?? []).map((r: any) => r.allocated_asset_id); const { data: assets } = ids.length ? await sb.from("ss_equipment_assets").select("daily_cost").in("id", ids) : { data: [] }; const equipDaily = (assets ?? []).reduce((a: number, e: any) => a + num(e.daily_cost), 0) || 224; const bd2 = estimateBreakdown(job, Object.values(latest), equipDaily, { tier: body.tier, discount_pct: body.discount_pct }); const { data: prev } = await sb.from("ss_estimate_versions").select("version").eq("job_id", job.id).order("version", { ascending: false }).limit(1).maybeSingle(); const version = (prev?.version || 0) + 1; const display = body.labor_display || "included"; const customer_view = { option: bd2.tier, price: bd2.revenue, problem: job.scope, included: INCL[job.service_type] || INCL.drain, labor: display === "included" ? "Labor included in project price" : display === "hours" ? `${bd2.hours} crew hours` : display === "rate" ? `${bd2.hours} h at ${fmt(loaded(Object.values(latest)[0] || { wage: 26, burden_pct: 32, overhead_pct: 18, target_margin_pct: 40 }).customer_rate)}/h` : "Time & materials", duration: `${bd2.days} working day${bd2.days > 1 ? "s" : ""}`, warranty: settings.warranty || "1-year workmanship", payment: `${settings.deposit_pct ?? 30}% deposit to schedule, balance on completion`, expires: iso(addD(new Date(), 30)), exclusions: EXCL, assumptions: ASSUME, change_orders: "Written change order with price before extra work begins" }; const { data } = await sb.from("ss_estimate_versions").insert({ tenant_id: t, job_id: job.id, version, tier: bd2.tier, breakdown: bd2, inclusions: customer_view.included, exclusions: EXCL, assumptions: ASSUME, customer_view, created_by: actor, note: body.note || "" }).select().single(); await audit(t, actor, "estimate.version_created", "job", job.id, null, { version, tier: bd2.tier, margin: bd2.gross_margin_pct }); return json(data); }
   }
+
+  // ---------- where do we actually drive? (multi-item shopping plan) ----------
+  // Readiness already knows what is missing and search already prices each item at each supplier. This is the
+  // step between them: the trip. Item-by-item cheapest routinely loses to a single stop once the crew's idle
+  // time is priced, so all three plans are shown with the tradeoff rather than one silent winner.
+  const sp = path.match(/^\/jobs\/([0-9a-f-]{36})\/shopping-plan$/);
+  if (sp) {
+    const { data: job } = await sb.from("ss_jobs").select("*").eq("id", sp[1]).eq("tenant_id", t).maybeSingle();
+    if (!job) return json({ error: "job not found" }, 404);
+    const { data: reqs } = await sb.from("ss_job_requirements").select("*").eq("job_id", job.id);
+    const missing = (reqs ?? []).filter((i: any) => !FULFILLED.has(i.status) && i.status !== "Needs Rental");
+    if (!missing.length) return json({ plans: [], recommended: null, unsourced: [], note: "Nothing to buy — every requirement is already sourced.", items: [] });
+
+    const lat = num(body.lat ?? url.searchParams.get("lat"), SHOP.lat), lng = num(body.lng ?? url.searchParams.get("lng"), SHOP.lng);
+    const names = missing.map((i: any) => i.item);
+
+    // one search per item, in parallel; a provider that fails returns a CONNECTION_ERROR row and is dropped here
+    const searches = await Promise.all(names.slice(0, 12).map(async (item: string) => {
+      try { const r = await universalSearch(t, { q: item, lat, lng, radius_mi: num(body.radius_mi, 30) }); return { item, rows: (r as any).rows ?? [] }; }
+      catch { return { item, rows: [] as any[] }; }
+    }));
+
+    const offers: Offer[] = [];
+    for (const { item, rows } of searches) {
+      const need = num(missing.find((m: any) => m.item === item)?.qty, 1);
+      for (const r of rows as any[]) {
+        if (r.kind === "error" || r.price == null) continue;
+        if (([STATUS.NA, STATUS.ERR] as string[]).includes(r.evidence?.status)) continue;
+        offers.push({
+          item, vendor_id: r.vendor_id ?? null, vendor_name: r.vendor_name || r.title, addr: r.addr ?? null,
+          phone: r.phone ?? null, url: r.url ?? null,
+          unit_price: r.price, qty_needed: need,
+          extended: Math.round(r.price * need * 100) / 100,
+          available: r.available ?? null,
+          availability_status: r.evidence?.status ?? STATUS.CALL,
+          price_status: r.evidence?.status ?? STATUS.EST,
+          evidence: r.evidence,
+        });
+      }
+    }
+
+    // real legs for vendors we have coordinates for; a calibrated estimate for everyone else
+    const vids = [...new Set(offers.map((f) => f.vendor_id).filter(Boolean))] as string[];
+    const { data: vrows } = vids.length ? await sb.from("ss_vendors").select("id,lat,lng").in("id", vids) : { data: [] as any[] };
+    const coords = new Map((vrows ?? []).map((v: any) => [v.id, v]));
+    const ordered = vids.map((id) => coords.get(id) ?? { lat: null, lng: null });
+    const vlegs = await driveTimes({ lat, lng }, ordered.map((v: any) => ({ lat: v.lat ?? null, lng: v.lng ?? null })));
+    const legs = new Map<string, { minutes: number; miles: number; status: string; caveat?: string }>();
+    vids.forEach((id, i) => {
+      const l = vlegs[i];
+      legs.set(id, l && l.distance_mi > 0
+        ? { minutes: l.minutes, miles: l.distance_mi, status: l.status, caveat: l.caveat }
+        : { minutes: 25, miles: 12, status: STATUS.EST, caveat: "No coordinates for this supplier — 25 min placeholder, confirm before relying on it." });
+    });
+
+    const out = buildPlans(names, offers, {
+      crew_cost_per_hour: num(settings.crew_cost_per_hour, 135),
+      stop_minutes: num(settings.stop_minutes, 18),
+      legs,
+    });
+    return json({ ...out, job: { id: job.id, name: job.name }, items: names, offers_considered: offers.length, searched_at: new Date().toISOString() });
+  }
+
+  // ---------- notifications: acknowledge, and climb what nobody acknowledged ----------
+  if (path === "/notifications/escalate") return json(await runEscalation(t, settings));
+  if (path === "/notifications/routing" && req.method === "GET") {
+    const kind = url.searchParams.get("kind") || "breakdown.filed";
+    return json({ kind, now: notifyRoute(kind, new Date(), settings), prefs: prefsFor(settings) });
+  }
+  const nack = path.match(/^\/notifications\/([0-9a-f-]{36})\/ack$/);
+  if (nack && req.method === "POST") {
+    const { data } = await sb.from("ss_notifications").update({ ack_at: new Date().toISOString(), ack_by: actor, read: true }).eq("id", nack[1]).eq("tenant_id", t).select().maybeSingle();
+    if (!data) return json({ error: "not found" }, 404);
+    await audit(t, actor, "notification.ack", "notification", nack[1], null, { title: data.title });
+    return json(data);
+  }
+
   const rq = path.match(/^\/requirements\/([0-9a-f-]{36})$/);
   if (rq && req.method === "POST") { const { data: before } = await sb.from("ss_job_requirements").select("*").eq("id", rq[1]).maybeSingle(); if (!before) return json({ error: "not found" }, 404); const patch: any = {}; for (const k of ["status", "qty", "approved", "notes", "critical", "allocated_asset_id"]) if (body[k] !== undefined) patch[k] = body[k]; if (body.status) { patch.verified_by = actor; patch.verified_at = new Date().toISOString(); } if (patch.allocated_asset_id) { const { data: clash } = await sb.from("ss_job_requirements").select("job_id").eq("allocated_asset_id", patch.allocated_asset_id).neq("job_id", before.job_id); if (clash?.length) return json({ error: "asset already allocated to another job" }, 409); } const { data } = await sb.from("ss_job_requirements").update(patch).eq("id", rq[1]).select().single(); await audit(t, actor, "job.requirement_updated", "requirement", rq[1], { status: before.status }, patch); const { data: all } = await sb.from("ss_job_requirements").select("*").eq("job_id", before.job_id); const r = readiness(all ?? []); if (r.state === "green" && !FULFILLED.has(before.status) && FULFILLED.has(patch.status)) await notify(t, "readiness", "Job ready for departure", `${r.ok}/${r.total} items verified`, { type: "job", id: before.job_id }); return json({ item: data, readiness: r }); }
 

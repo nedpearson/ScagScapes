@@ -10,3 +10,8 @@ Thumbs.db
 .fe_patch.py
 .fe_patch2.py
 Claude outputs/
+
+# local test deps (CI installs playwright itself)
+node_modules/
+package-lock.json
+package.json

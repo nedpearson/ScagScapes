@@ -164,3 +164,106 @@ Screenshots: `docs/screenshots/` (universal-search, call-package, vendor-perform
 ## 10. Next iteration
 
 Supabase Auth + per-role RLS; feed vendor performance into recovery scoring reliability; multi-item shopping-plan optimizer (one-stop vs lowest-cost vs fastest); private photo bucket with signed URLs; camera QR scanner; Mapbox/OSRM drive-time; vendor SMS quote round-trip (Twilio inbound → option auto-verified); scheduled re-check of `STALE` options; QuickBooks sync for estimate versions.
+
+---
+
+# v1.7 — the six gaps §10 left open
+
+Branch `feature/field-ops-gaps` · edge function `ss-api` **v1.7.0** · migration `scagscapes_field_ops_3` · app cache `scagscapes-v19`
+
+§10 "Next iteration" named these. They are now closed. Nothing that existed was replaced; every change is additive
+and the previous function version still runs against this schema.
+
+## 11. Drive time — and what measuring it found
+
+`miles()` (straight-line) fed both `distance_mi` (15% of the recovery score) and every rental/mechanic ETA
+(30%, via `ttr_hours`). `routing.ts` now routes on the OpenStreetMap network through OSRM and falls back to a
+**measured** road factor rather than a guessed one.
+
+Measured 2026-09-21 against 26 real Baton Rouge destinations — reproduce with `python3 tools/measure-road-factor.py`:
+
+| | crow mi | road mi | ratio | mph |
+|---|---|---|---|---|
+| Port Allen centre | 1.4 | 3.6 | **2.65** | 35 |
+| Lowe's Port Allen | 1.7 | 4.3 | **2.49** | 33 |
+| United Rentals BR | 3.6 | 4.1 | 1.14 | 28 |
+| Home Depot Airline | 8.3 | 11.0 | 1.32 | 39 |
+| Prairieville | 17.4 | 20.3 | 1.17 | 46 |
+| Gonzales | 21.7 | 24.4 | 1.13 | 47 |
+| **median (n=26)** | | | **1.23** | **36.1** |
+
+**The finding worth acting on: anything across the Mississippi is ~2.5× the crow line, because there is one
+bridge.** Port Allen is a named Scag market. Straight-line was telling a crew a west-bank vendor was the nearest
+option when it was not — on the two axes that carry 45% of the recovery score. No constant fixes that; only a
+route knows where the bridge is. When routing is unavailable the estimate carries an explicit caveat on any leg
+that crosses the river, and the number is stated as a floor.
+
+Speed is banded from the same sample (< 5 mi 30.5 mph · 5–12 mi 35.7 · > 12 mi 45.6), because a short trip on
+surface streets is not a run down I-10. A routed leg is `LIVE_VERIFIED`; a fallback is `ESTIMATED` and says
+"no route was computed" in its own `method` field. One OSRM table call covers every vendor in a breakdown.
+
+## 12. Vendor performance now reaches the score
+
+`performance()` had computed a reliability figure per vendor since v1.4 and `scoreOptions()` had weighted
+reliability at 10% since v1.3 — **the two were never connected**. Ranking used a constant per option *kind*
+(.75 mobile, .85 dealer, .8 rental), so a vendor that had cancelled on Scag twice scored identically to one that
+had never missed. `reliabilityMap()` (resources.ts) now feeds `buildOptions()`; the figure appears in
+`score.inputs.reliability`, so the crew can see why one vendor outranked another. Under three recorded events a
+vendor keeps the neutral .7 — a new vendor is not punished for being new, and one bad day cannot blackball anyone.
+
+## 13. Shopping plans: one stop vs cheapest vs fastest
+
+`POST /jobs/:id/shopping-plan`. Readiness knew what was missing; search could price each item; nothing joined
+them into the decision the crew lead makes at 6:40am. Three plans, always, with the tradeoff on the card:
+
+- **ONE_STOP** — the single supplier covering the most items, remainder filled and reported as partial
+- **LOWEST** — cheapest priced supplier per item
+- **FASTEST** — verified stock first, then nearest; cost only breaks ties
+
+Compared on **landed cost = materials + crew time (drive + stops) at the tenant's own `crew_cost_per_hour`**, not
+on sticker price. A $30 saving 40 minutes away loses to one stop, and the card shows the arithmetic. An item no
+supplier could price is returned in `unsourced` — the list is never quietly shortened. Stop-to-stop legs are
+approximated from each vendor's leg from the yard, stated in the response `note`. `stop_minutes` (default 18) is
+a tenant setting so Charlie can correct it from what the crew actually does.
+
+## 14. Notifications: urgency, quiet hours, acknowledgement, escalation
+
+`notify()` was three identical private copies that wrote a row and pushed to everyone, always, at any hour.
+`notify.ts` is now the single path.
+
+- Every kind carries an urgency (`URGENCY` map). Quiet hours (default 21:00–06:00, tenant local, `tz_offset`
+  stored per tenant) defer anything below critical to the next morning — a rental-return reminder no longer
+  wakes the same phones as a machine down with a crew on site.
+- Critical notices require acknowledgement. `POST /notifications/:id/ack`.
+- An unacknowledged critical escalates to a named role on a timer (approval requested: 20 min → admin; safety
+  shutdown: 10 min → admin). `GET /notifications/escalate` runs the sweep on app load beside `/rentals/due`, and
+  is idempotent via `escalated_at`.
+- `GET /notifications/routing?kind=…` reports what a kind would do right now and why — the rule is inspectable
+  rather than folklore.
+
+## 15. Video, voice notes, and a camera that reads the sticker
+
+- Breakdown intake takes a **short video** and a **voice note** (MediaRecorder, capped at 2 minutes) beside the
+  photos, through the same private bucket and 1-hour signed URLs. A clip over the server's 8 MB cap is refused in
+  the crew's hand with the actual size, rather than dropped silently server-side. The media strip plays video and
+  audio inline.
+- **QR scanning** uses `BarcodeDetector` where the browser has it. Where it does not, the app says so and focuses
+  the typed field that has always worked — no camera button that silently does nothing.
+
+## 16. Tests
+
+- `deno test` — **35 passed** (was 23). New: road factor and the river caveat, speed bands, plan ranking under
+  crew cost, unsourced items, stock below requirement, weakest-link confidence, quiet-hours midnight wrap,
+  deferral release, escalation config, reliability changing the ranking.
+- `tests/local-smoke.mjs` — **27 checks, 0 failures, no console errors.** New in CI, and it tests the *working
+  tree* rather than the deployment, which is the gap that let the KPI bug ship.
+- `deno check` clean · front-end parse clean.
+
+## 17. Still open
+
+- **Authentication.** Roles remain self-declared (`x-role`). Unchanged by this branch and still the one thing
+  blocking real crew use.
+- Escalation notifies a *role*, not a person — there is no identity to page until auth exists.
+- OSRM's public demo server is rate-limited and not for bulk use; a paid routing key would be the production move.
+- Stop-to-stop legs are approximated, not routed.
+- `/notifications/escalate` runs on app load, not on a cron. Same gap as `/rentals/due` (SETUP.md).
