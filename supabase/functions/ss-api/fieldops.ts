@@ -178,6 +178,25 @@ export async function fieldops(path: string, req: Request, url: URL, body: any, 
   const rq = path.match(/^\/requirements\/([0-9a-f-]{36})$/);
   if (rq && req.method === "POST") { const { data: before } = await sb.from("ss_job_requirements").select("*").eq("id", rq[1]).maybeSingle(); if (!before) return json({ error: "not found" }, 404); const patch: any = {}; for (const k of ["status", "qty", "approved", "notes", "critical", "allocated_asset_id"]) if (body[k] !== undefined) patch[k] = body[k]; if (body.status) { patch.verified_by = actor; patch.verified_at = new Date().toISOString(); } if (patch.allocated_asset_id) { const { data: clash } = await sb.from("ss_job_requirements").select("job_id").eq("allocated_asset_id", patch.allocated_asset_id).neq("job_id", before.job_id); if (clash?.length) return json({ error: "asset already allocated to another job" }, 409); } const { data } = await sb.from("ss_job_requirements").update(patch).eq("id", rq[1]).select().single(); await audit(t, actor, "job.requirement_updated", "requirement", rq[1], { status: before.status }, patch); const { data: all } = await sb.from("ss_job_requirements").select("*").eq("job_id", before.job_id); const r = readiness(all ?? []); if (r.state === "green" && !FULFILLED.has(before.status) && FULFILLED.has(patch.status)) await notify(t, "readiness", "Job ready for departure", `${r.ok}/${r.total} items verified`, { type: "job", id: before.job_id }); return json({ item: data, readiness: r }); }
 
+  // A crew departing a job that is not "green" over a manager's stated reason. Previously the front end called a
+  // route that did not exist and swallowed the 404, so the toast said "allowed by exception" while nothing was
+  // ever recorded anywhere - no audit row, no approval, nothing a real manager could be held to later. Every
+  // other override in this app leaves a trail (ss_audit at minimum); this one now does too, in ss_approvals,
+  // the table the app already reads for /approvals.
+  const rqx = path.match(/^\/jobs\/([0-9a-f-]{36})\/readiness\/exception$/);
+  if (rqx && req.method === "POST") {
+    if (!body.reason || !String(body.reason).trim()) return json({ error: "reason required" }, 400);
+    const { data: job } = await sb.from("ss_jobs").select("id,name,scope").eq("id", rqx[1]).eq("tenant_id", t).maybeSingle();
+    if (!job) return json({ error: "not found" }, 404);
+    const { data: all } = await sb.from("ss_job_requirements").select("*").eq("job_id", job.id);
+    const r = readiness(all ?? []);
+    const now = new Date().toISOString();
+    const { data: appr } = await sb.from("ss_approvals").insert({ tenant_id: t, kind: "departure_exception", ref_type: "job", ref_id: job.id, reason: body.reason, status: "approved", requested_by: actor, decided_by: actor, decided_at: now }).select().single();
+    await audit(t, actor, "job.departure_exception", "job", job.id, { readiness_state: r.state, critical_missing: r.critical_missing }, { reason: body.reason });
+    await notify(t, "readiness", "Departed by manager exception", `${job.name} · ${r.ok}/${r.total} verified (${r.critical_missing.length} critical open) · ${actor}: ${body.reason}`, { type: "job", id: job.id });
+    return json({ approval: appr, readiness: r });
+  }
+
   if (path === "/pricing/labor" && req.method === "GET") { const { data } = await sb.from("ss_labor_rates").select("*").eq("tenant_id", t).order("role").order("effective", { ascending: false }); return json((data ?? []).map((r: any) => ({ ...r, computed: loaded(r) }))); }
   if (path === "/pricing/labor" && req.method === "POST") { const { data: prev } = await sb.from("ss_labor_rates").select("*").eq("tenant_id", t).eq("role", body.role).order("effective", { ascending: false }).limit(1).maybeSingle(); if (!body.reason) return json({ error: "reason required" }, 400); const { data } = await sb.from("ss_labor_rates").insert({ tenant_id: t, role: body.role, wage: num(body.wage, prev?.wage), burden_pct: num(body.burden_pct, prev?.burden_pct ?? 32), overhead_pct: num(body.overhead_pct, prev?.overhead_pct ?? 18), target_margin_pct: num(body.target_margin_pct, prev?.target_margin_pct ?? 40), effective: body.effective || iso(new Date()), changed_by: actor, reason: body.reason, previous: prev ? { wage: prev.wage, burden_pct: prev.burden_pct, overhead_pct: prev.overhead_pct, target_margin_pct: prev.target_margin_pct } : null }).select().single(); await audit(t, actor, "estimate.rate_changed", "labor_rate", data.id, prev, data); return json({ ...data, computed: loaded(data) }); }
   if (path === "/approvals" && req.method === "GET") { const { data } = await sb.from("ss_approvals").select("*").eq("tenant_id", t).order("created_at", { ascending: false }); return json(data ?? []); }
