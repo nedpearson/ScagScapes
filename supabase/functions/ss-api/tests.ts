@@ -1,12 +1,17 @@
 // deno test --allow-env --allow-net --allow-read tests.ts
 Deno.env.set("SUPABASE_URL", "https://example.supabase.co"); Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test");
 import { assert, assertEquals, assertAlmostEquals } from "jsr:@std/assert@1";
-const { price } = await import("./core.ts");
+const { price, CORS } = await import("./core.ts");
 const { rentalTotal } = await import("./sourcing.ts");
 const { diagnose, scoreOptions, explainQty, readiness, loaded, estimateBreakdown, STATUS } = await import("./fieldops.ts");
 
 Deno.test("pricing engine: drain rate stays inside published $25–60/LF", () => {
   for (const soil of [1, 1.12, 1.2]) for (const depth of [18, 24, 30]) for (const pipe of [4, 6]) { const p = price("drain", { lf: 100, depth, pipe, soil, basins: 0, pop: 0, sod: 0 }); const rate = p.rows[0][1] / 100; assert(rate >= 25 && rate <= 60, `rate ${rate}`); }
+});
+Deno.test("CORS allows browser writes to the tenant-scoped db proxy", () => {
+  assert(CORS["Access-Control-Allow-Headers"].includes("prefer"));
+  assert(CORS["Access-Control-Allow-Methods"].includes("PATCH"));
+  assert(CORS["Access-Control-Allow-Methods"].includes("DELETE"));
 });
 Deno.test("pricing engine: every service type prices and returns a BOM", () => { for (const t of ["drain", "pad", "fence", "patio", "sod", "porch"]) { const p = price(t, {}); assert(p.total > 0 && p.bom.length > 0, t); } });
 Deno.test("rentalTotal: weekly cap beats 7 daily, monthly cap beats 4 weekly", () => { const rc = { day: 100, week: 300, month: 900 }; assertEquals(rentalTotal(rc, 1), 100); assertEquals(rentalTotal(rc, 4), 300); assertEquals(rentalTotal(rc, 7), 300); assertEquals(rentalTotal(rc, 10), 600); assertEquals(rentalTotal(rc, 28), 900); assertEquals(rentalTotal({ day: 0, week: 0, month: 0 }, 3), null); });
